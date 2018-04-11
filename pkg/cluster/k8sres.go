@@ -451,9 +451,9 @@ func (c *Cluster) generatePodTemplate(
 			podSpec.Containers,
 			v1.Container{
 				Name:            "exporter-sidecar",
-				Image:           containerImage,
+				Image:           c.OpConfig.PostgresExporterImage,
 				ImagePullPolicy: v1.PullIfNotPresent,
-				Resources:       *resourceRequirements,
+				Resources:       *resourceRequirementsPostgresExporterSidecar,
 				Ports: []v1.ContainerPort{
 					{
 						ContainerPort: 9187,
