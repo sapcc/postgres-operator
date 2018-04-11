@@ -284,6 +284,7 @@ func (c *Cluster) generatePodTemplate(
 	uid types.UID,
 	resourceRequirements *v1.ResourceRequirements,
 	resourceRequirementsScalyrSidecar *v1.ResourceRequirements,
+	resourceRequirementsPostgresExporterSidecar *v1.ResourceRequirements,
 	tolerationsSpec *[]v1.Toleration,
 	pgParameters *spec.PostgresqlParam,
 	patroniParameters *spec.Patroni,
@@ -432,17 +433,62 @@ func (c *Cluster) generatePodTemplate(
 			Privileged: &privilegedMode,
 		},
 	}
+
+	extractorContainer := v1.Container{
+		Name:            c.containerName(),
+		Image:           containerImage,
+		ImagePullPolicy: v1.PullIfNotPresent,
+		Resources:       *resourceRequirements,
+		Ports: []v1.ContainerPort{
+			{
+				ContainerPort: 9187,
+				Protocol:      v1.ProtocolTCP,
+			},
+		},
+		Env: envVars,
+		SecurityContext: &v1.SecurityContext{
+			Privileged: &privilegedMode,
+		},
+	}
+
 	terminateGracePeriodSeconds := int64(c.OpConfig.PodTerminateGracePeriod.Seconds())
 
 	podSpec := v1.PodSpec{
 		ServiceAccountName:            c.OpConfig.ServiceAccountName,
 		TerminationGracePeriodSeconds: &terminateGracePeriodSeconds,
-		Containers:                    []v1.Container{container},
+		Containers:                    []v1.Container{container, extractorContainer},
 		Tolerations:                   c.tolerations(tolerationsSpec),
 	}
 
 	if affinity := c.nodeAffinity(); affinity != nil {
 		podSpec.Affinity = affinity
+	}
+
+	if c.OpConfig.PostgresExporterImage != "" {
+		podSpec.Containers = append(
+			podSpec.Containers,
+			v1.Container{
+				Name:            "extractor-sidecar",
+				Image:           containerImage,
+				ImagePullPolicy: v1.PullIfNotPresent,
+				Resources:       *resourceRequirements,
+				Ports: []v1.ContainerPort{
+					{
+						ContainerPort: 9187,
+						Protocol:      v1.ProtocolTCP,
+					},
+				},
+				Env: []v1.EnvVar{
+					{
+						Name:  "DATA_SOURCE_NAME",
+						Value: c.OpConfig.PostgresExporterDataSourceName,
+					},
+				},
+				SecurityContext: &v1.SecurityContext{
+					Privileged: &privilegedMode,
+				},
+			},
+		)
 	}
 
 	if c.OpConfig.ScalyrAPIKey != "" && c.OpConfig.ScalyrImage != "" {
@@ -540,6 +586,17 @@ func (c *Cluster) generateStatefulSet(spec *spec.PostgresSpec) (*v1beta1.Statefu
 	if err != nil {
 		return nil, fmt.Errorf("could not generate Scalyr sidecar resource requirements: %v", err)
 	}
+	resourceRequirementsPostgresExporterSidecar, err := c.resourceRequirements(
+		makeResources(
+			c.OpConfig.PostgresExporterCPURequest,
+			c.OpConfig.PostgresExporterMemoryRequest,
+			c.OpConfig.PostgresExporterCPULimit,
+			c.OpConfig.PostgresExporterMemoryLimit,
+		),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("could not generate Postgres Exporter sidecar resource requirements: %v", err)
+	}
 	var customPodEnvVars map[string]string
 	if c.OpConfig.PodEnvironmentConfigMap != "" {
 		if cm, err := c.KubeClient.ConfigMaps(c.Namespace).Get(c.OpConfig.PodEnvironmentConfigMap, metav1.GetOptions{}); err != nil {
@@ -548,7 +605,7 @@ func (c *Cluster) generateStatefulSet(spec *spec.PostgresSpec) (*v1beta1.Statefu
 			customPodEnvVars = cm.Data
 		}
 	}
-	podTemplate := c.generatePodTemplate(c.Postgresql.GetUID(), resourceRequirements, resourceRequirementsScalyrSidecar, &spec.Tolerations, &spec.PostgresqlParam, &spec.Patroni, &spec.Clone, &spec.DockerImage, customPodEnvVars)
+	podTemplate := c.generatePodTemplate(c.Postgresql.GetUID(), resourceRequirements, resourceRequirementsScalyrSidecar, resourceRequirementsPostgresExporterSidecar, &spec.Tolerations, &spec.PostgresqlParam, &spec.Patroni, &spec.Clone, &spec.DockerImage, customPodEnvVars)
 	volumeClaimTemplate, err := generatePersistentVolumeClaimTemplate(spec.Volume.Size, spec.Volume.StorageClass)
 	if err != nil {
 		return nil, fmt.Errorf("could not generate volume claim template: %v", err)

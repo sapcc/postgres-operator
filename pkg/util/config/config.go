@@ -61,12 +61,23 @@ type Scalyr struct {
 	ScalyrMemoryLimit   string `name:"scalyr_memory_limit" default:"1Gi"`
 }
 
+// PostgresExporter holds the configuration for the postgres exporter sidecar for prometheus metrics:
+type PostgresExporter struct {
+	PostgresExporterImage          string `name:"postgres_exporter_image" default:""`
+	PostgresExporterDataSourceName string `name:"postgres_exporter_data_source_name" default:""`
+	PostgresExporterCPURequest     string `name:"postgres_exporter_cpu_request" default:"100m"`
+	PostgresExporterMemoryRequest  string `name:"postgres_exporter_memory_request" default:"50Mi"`
+	PostgresExporterCPULimit       string `name:"postgres_exporter_cpu_limit" default:"1"`
+	PostgresExporterMemoryLimit    string `name:"postgres_exporter_memory_limit" default:"1Gi"`
+}
+
 // Config describes operator config
 type Config struct {
 	CRD
 	Resources
 	Auth
 	Scalyr
+	PostgresExporter
 	WatchedNamespace          string `name:"watched_namespace"` // special values: "*" means 'watch all namespaces', the empty string "" means 'watch a namespace where operator is deployed to'
 	EtcdHost                  string `name:"etcd_host" default:"etcd-client.default.svc.cluster.local:2379"`
 	DockerImage               string `name:"docker_image" default:"registry.opensource.zalan.do/acid/spiloprivate-9.6:1.2-p4"`
