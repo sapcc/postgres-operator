@@ -462,8 +462,23 @@ func (c *Cluster) generatePodTemplate(
 				},
 				Env: []v1.EnvVar{
 					{
-						Name:  "DATA_SOURCE_NAME",
-						Value: c.OpConfig.PostgresExporterDataSourceName,
+						Name: "DATA_SOURCE_PASS",
+						ValueFrom: &v1.EnvVarSource{
+							SecretKeyRef: &v1.SecretKeySelector{
+								LocalObjectReference: v1.LocalObjectReference{
+									Name: c.credentialSecretName(c.OpConfig.SuperUsername),
+								},
+								Key: "password",
+							},
+						},
+					},
+					{
+						Name:  "DATA_SOURCE_USER",
+						Value: c.OpConfig.SuperUsername,
+					},
+					{
+						Name:  "DATA_SOURCE_URI",
+						Value: "localhost:5432",
 					},
 				},
 				SecurityContext: &v1.SecurityContext{
