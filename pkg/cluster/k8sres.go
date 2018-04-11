@@ -433,30 +433,12 @@ func (c *Cluster) generatePodTemplate(
 			Privileged: &privilegedMode,
 		},
 	}
-
-	extractorContainer := v1.Container{
-		Name:            c.containerName(),
-		Image:           containerImage,
-		ImagePullPolicy: v1.PullIfNotPresent,
-		Resources:       *resourceRequirements,
-		Ports: []v1.ContainerPort{
-			{
-				ContainerPort: 9187,
-				Protocol:      v1.ProtocolTCP,
-			},
-		},
-		Env: envVars,
-		SecurityContext: &v1.SecurityContext{
-			Privileged: &privilegedMode,
-		},
-	}
-
 	terminateGracePeriodSeconds := int64(c.OpConfig.PodTerminateGracePeriod.Seconds())
 
 	podSpec := v1.PodSpec{
 		ServiceAccountName:            c.OpConfig.ServiceAccountName,
 		TerminationGracePeriodSeconds: &terminateGracePeriodSeconds,
-		Containers:                    []v1.Container{container, extractorContainer},
+		Containers:                    []v1.Container{container},
 		Tolerations:                   c.tolerations(tolerationsSpec),
 	}
 
@@ -468,7 +450,7 @@ func (c *Cluster) generatePodTemplate(
 		podSpec.Containers = append(
 			podSpec.Containers,
 			v1.Container{
-				Name:            "extractor-sidecar",
+				Name:            "exporter-sidecar",
 				Image:           containerImage,
 				ImagePullPolicy: v1.PullIfNotPresent,
 				Resources:       *resourceRequirements,
