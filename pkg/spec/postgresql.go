@@ -42,6 +42,12 @@ type Resources struct {
 	ResourceLimits  ResourceDescription `json:"limits,omitempty"`
 }
 
+// PostgresExporter contains postgres exporter specific configs
+type PostgresExporter struct {
+	Image         string            `json:"image"`
+	CustomMetrics map[string]string `json:"customMetrics"`
+}
+
 // Patroni contains Patroni-specific configuration
 type Patroni struct {
 	InitDB               map[string]string `json:"initdb"`
@@ -88,10 +94,11 @@ type Postgresql struct {
 
 // PostgresSpec defines the specification for the PostgreSQL TPR.
 type PostgresSpec struct {
-	PostgresqlParam `json:"postgresql"`
-	Volume          `json:"volume,omitempty"`
-	Patroni         `json:"patroni,omitempty"`
-	Resources       `json:"resources,omitempty"`
+	PostgresqlParam  `json:"postgresql"`
+	Volume           `json:"volume,omitempty"`
+	Patroni          `json:"patroni,omitempty"`
+	Resources        `json:"resources,omitempty"`
+	PostgresExporter `json:"postgres_exporter:,omitempty"`
 
 	TeamID      string `json:"teamId"`
 	DockerImage string `json:"dockerImage,omitempty"`

@@ -288,6 +288,7 @@ func (c *Cluster) generatePodTemplate(
 	tolerationsSpec *[]v1.Toleration,
 	pgParameters *spec.PostgresqlParam,
 	patroniParameters *spec.Patroni,
+	postgresExporterParameters *spec.PostgresExporter,
 	cloneDescription *spec.CloneDescription,
 	dockerImage *string,
 	customPodEnvVars map[string]string,
@@ -446,7 +447,7 @@ func (c *Cluster) generatePodTemplate(
 		podSpec.Affinity = affinity
 	}
 
-	if c.OpConfig.PostgresExporterImage != "" {
+	if postgresExporterParameters.Image != "" {
 		podSpec.Containers = append(
 			podSpec.Containers,
 			v1.Container{
@@ -599,7 +600,7 @@ func (c *Cluster) generateStatefulSet(spec *spec.PostgresSpec) (*v1beta1.Statefu
 			customPodEnvVars = cm.Data
 		}
 	}
-	podTemplate := c.generatePodTemplate(c.Postgresql.GetUID(), resourceRequirements, resourceRequirementsScalyrSidecar, resourceRequirementsPostgresExporterSidecar, &spec.Tolerations, &spec.PostgresqlParam, &spec.Patroni, &spec.Clone, &spec.DockerImage, customPodEnvVars)
+	podTemplate := c.generatePodTemplate(c.Postgresql.GetUID(), resourceRequirements, resourceRequirementsScalyrSidecar, resourceRequirementsPostgresExporterSidecar, &spec.Tolerations, &spec.PostgresqlParam, &spec.Patroni, &spec.PostgresExporter, &spec.Clone, &spec.DockerImage, customPodEnvVars)
 	volumeClaimTemplate, err := generatePersistentVolumeClaimTemplate(spec.Volume.Size, spec.Volume.StorageClass)
 	if err != nil {
 		return nil, fmt.Errorf("could not generate volume claim template: %v", err)
