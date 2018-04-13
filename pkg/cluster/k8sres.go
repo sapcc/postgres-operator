@@ -773,15 +773,6 @@ func (c *Cluster) generateService(role PostgresRole, spec *spec.PostgresSpec) *v
 		dnsName = c.replicaDNSName()
 	}
 
-	if c.OpConfig.PostgresExporterImage != "" {
-		serviceSpecExporter := v1.ServiceSpec{
-			Ports: []v1.ServicePort{
-				{Name: "metrics", Port: 9178, TargetPort: intstr.IntOrString{IntVal: 9178}},
-			},
-			Type: v1.ServiceTypeClusterIP,
-		}
-	}
-
 	serviceSpec := v1.ServiceSpec{
 		Ports: []v1.ServicePort{
 			{Name: "postgresql", Port: 5432, TargetPort: intstr.IntOrString{IntVal: 5432}},
@@ -818,7 +809,7 @@ func (c *Cluster) generateService(role PostgresRole, spec *spec.PostgresSpec) *v
 		c.logger.Debugf("No load balancer created for the replica service")
 	}
 
-	if serviceSpec.Type == v1.ServiceTypeClusterIP {
+	if serviceSpec.Type == v1.ServiceTypeClusterIP && c.OpConfig.PostgresExporterImage != "" {
 		serviceSpec.Ports = append(
 			serviceSpec.Ports,
 			v1.ServicePort{Name: "metrics", Port: 9178, TargetPort: intstr.IntOrString{IntVal: 9178}},
