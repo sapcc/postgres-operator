@@ -446,8 +446,8 @@ func (c *Cluster) generatePodTemplate(
 	if affinity := c.nodeAffinity(); affinity != nil {
 		podSpec.Affinity = affinity
 	}
-	c.logger.Debugf("THIS IS THE EXPORTER IMAGE", postgresExporterParameters.Image)
-	c.logger.Debugf("THIS IS", postgresExporterParameters)
+	c.logger.Debugf("THIS IS THE EXPORTER IMAGE: %s", postgresExporterParameters.Image)
+	c.logger.Debugf("THIS IS %v", postgresExporterParameters)
 	if postgresExporterParameters.Image != "" {
 		podSpec.Containers = append(
 			podSpec.Containers,
