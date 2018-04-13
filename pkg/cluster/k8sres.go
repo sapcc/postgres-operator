@@ -446,13 +446,14 @@ func (c *Cluster) generatePodTemplate(
 	if affinity := c.nodeAffinity(); affinity != nil {
 		podSpec.Affinity = affinity
 	}
-
+	c.logger.Debugf("THIS IS THE EXPORTER IMAGE", postgresExporterParameters.Image)
+	c.logger.Debugf("THIS IS", postgresExporterParameters)
 	if postgresExporterParameters.Image != "" {
 		podSpec.Containers = append(
 			podSpec.Containers,
 			v1.Container{
 				Name:            "exporter-sidecar",
-				Image:           c.OpConfig.PostgresExporterImage,
+				Image:           postgresExporterParameters.Image,
 				ImagePullPolicy: v1.PullIfNotPresent,
 				Resources:       *resourceRequirementsPostgresExporterSidecar,
 				Ports: []v1.ContainerPort{
