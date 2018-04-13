@@ -815,8 +815,10 @@ func (c *Cluster) generateService(role PostgresRole, spec *spec.PostgresSpec) *v
 			v1.ServicePort{Name: "metrics", Port: 9178, TargetPort: intstr.IntOrString{IntVal: 9178}},
 		)
 
-		annotations["prometheus.io/scrape"] = "true"
-		annotations["prometheus.io/port"] = "9178"
+		annotations = map[string]string{
+			"prometheus.io/scrape": "true",
+			"prometheus.io/port":   "9178",
+		}
 	}
 
 	service := &v1.Service{
