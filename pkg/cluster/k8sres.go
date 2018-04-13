@@ -481,9 +481,6 @@ func (c *Cluster) generatePodTemplate(
 						Value: "localhost:5432",
 					},
 				},
-				SecurityContext: &v1.SecurityContext{
-					Privileged: &privilegedMode,
-				},
 			},
 		)
 	}
@@ -776,9 +773,20 @@ func (c *Cluster) generateService(role PostgresRole, spec *spec.PostgresSpec) *v
 		dnsName = c.replicaDNSName()
 	}
 
+	if c.OpConfig.PostgresExporterImage != "" {
+		serviceSpecExporter := v1.ServiceSpec{
+			Ports: []v1.ServicePort{
+				{Name: "metrics", Port: 9178, TargetPort: intstr.IntOrString{IntVal: 9178}},
+			},
+			Type: v1.ServiceTypeClusterIP,
+		}
+	}
+
 	serviceSpec := v1.ServiceSpec{
-		Ports: []v1.ServicePort{{Name: "postgresql", Port: 5432, TargetPort: intstr.IntOrString{IntVal: 5432}}},
-		Type:  v1.ServiceTypeClusterIP,
+		Ports: []v1.ServicePort{
+			{Name: "postgresql", Port: 5432, TargetPort: intstr.IntOrString{IntVal: 5432}},
+		},
+		Type: v1.ServiceTypeClusterIP,
 	}
 
 	if role == Replica {
@@ -808,6 +816,16 @@ func (c *Cluster) generateService(role PostgresRole, spec *spec.PostgresSpec) *v
 		// before PR #258, the replica service was only created if allocated a LB
 		// now we always create the service but warn if the LB is absent
 		c.logger.Debugf("No load balancer created for the replica service")
+	}
+
+	if serviceSpec.Type == v1.ServiceTypeClusterIP {
+		serviceSpec.Ports = append(
+			serviceSpec.Ports,
+			v1.ServicePort{Name: "metrics", Port: 9178, TargetPort: intstr.IntOrString{IntVal: 9178}},
+		)
+
+		annotations["prometheus.io/scrape"] = "true"
+		annotations["prometheus.io/port"] = "9178"
 	}
 
 	service := &v1.Service{
