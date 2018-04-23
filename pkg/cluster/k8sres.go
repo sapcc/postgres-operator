@@ -446,9 +446,37 @@ func (c *Cluster) generatePodTemplate(
 	if affinity := c.nodeAffinity(); affinity != nil {
 		podSpec.Affinity = affinity
 	}
-	c.logger.Debugf("THIS IS THE EXPORTER IMAGE: %s", postgresExporterParameters.Image)
-	c.logger.Debugf("THIS IS %v", postgresExporterParameters)
+
 	if postgresExporterParameters.Image != "" {
+		var volumeMounts []v1.VolumeMount
+		var args []string
+		configMap, err := c.KubeClient.ConfigMaps(c.Namespace).
+			Get(postgresExporterParameters.ConfigMapName, metav1.GetOptions{})
+
+		if err == nil {
+			podSpec.Volumes = append(
+				podSpec.Volumes,
+				v1.Volume{
+					Name: "postgres-exporter",
+					VolumeSource: v1.VolumeSource{
+						ConfigMap: &v1.ConfigMapVolumeSource{
+							LocalObjectReference: v1.LocalObjectReference{
+								Name: configMap.Name,
+							},
+						},
+					},
+				},
+			)
+			volumeMounts = append(
+				volumeMounts,
+				v1.VolumeMount{
+					Name:      "postgres-exporter",
+					MountPath: "/config",
+					ReadOnly:  true,
+				},
+			)
+			args = append(args, "--extend.query-path=/config/queries.yaml")
+		}
 		podSpec.Containers = append(
 			podSpec.Containers,
 			v1.Container{
@@ -483,6 +511,8 @@ func (c *Cluster) generatePodTemplate(
 						Value: "localhost:5432",
 					},
 				},
+				VolumeMounts: volumeMounts,
+				Args:         args,
 			},
 		)
 	}
@@ -546,6 +576,20 @@ func (c *Cluster) generatePodTemplate(
 	return &template
 }
 
+/*
+func (c *Cluster) generateConfigMap(q string) *v1.ConfigMap {
+	configMap := v1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels:    c.labelsSet(true),
+			Namespace: c.Namespace,
+		},
+		Data: map[string]string{"data": q},
+	}
+
+	return &configMap
+}
+*/
+
 func getWALBucketScopeSuffix(uid string) string {
 	if uid != "" {
 		return fmt.Sprintf("/%s", uid)
@@ -584,10 +628,10 @@ func (c *Cluster) generateStatefulSet(spec *spec.PostgresSpec) (*v1beta1.Statefu
 	}
 	resourceRequirementsPostgresExporterSidecar, err := c.resourceRequirements(
 		makeResources(
-			c.OpConfig.PostgresExporterCPURequest,
-			c.OpConfig.PostgresExporterMemoryRequest,
-			c.OpConfig.PostgresExporterCPULimit,
-			c.OpConfig.PostgresExporterMemoryLimit,
+			spec.PostgresExporterCPURequest,
+			spec.PostgresExporterMemoryRequest,
+			spec.PostgresExporterCPULimit,
+			spec.PostgresExporterMemoryLimit,
 		),
 	)
 	if err != nil {
@@ -811,7 +855,7 @@ func (c *Cluster) generateService(role PostgresRole, spec *spec.PostgresSpec) *v
 		c.logger.Debugf("No load balancer created for the replica service")
 	}
 
-	if serviceSpec.Type == v1.ServiceTypeClusterIP && c.OpConfig.PostgresExporterImage != "" {
+	if serviceSpec.Type == v1.ServiceTypeClusterIP && spec.PostgresExporter.Image != "" {
 		serviceSpec.Ports = append(
 			serviceSpec.Ports,
 			v1.ServicePort{Name: "metrics", Port: 9178, TargetPort: intstr.IntOrString{IntVal: 9178}},

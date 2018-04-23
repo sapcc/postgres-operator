@@ -1,11 +1,18 @@
 apiVersion: "acid.zalan.do/v1"
 kind: postgresql
 metadata:
-  name: acid-minimal-cluster
+  name: acid-minimal-cluster05
 spec:
   teamId: "ACID"
+  enableMasterLoadBalancer: false
+  enableReplicaLoadBalancer: false
   volume:
     size: 1Gi
+  postgres_exporter:
+    image: "wrouesnel/postgres_exporter:latest"
+    cpu_request: "100m"
+    memory_request: "50Mi"
+    configmap_name: postgres-exporter-configmap
   numberOfInstances: 2
   users:
     # database owner
@@ -21,3 +28,5 @@ spec:
     foo: zalando
   postgresql:
     version: "10"
+  patroni:
+    ttl: 3000

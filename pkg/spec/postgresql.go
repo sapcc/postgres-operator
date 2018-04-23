@@ -44,8 +44,12 @@ type Resources struct {
 
 // PostgresExporter contains postgres exporter specific configs
 type PostgresExporter struct {
-	Image         string            `json:"image"`
-	CustomMetrics map[string]string `json:"customMetrics"`
+	Image                         string `json:"image"`
+	PostgresExporterCPURequest    string `json:"cpu_request" default:"100m"`
+	PostgresExporterMemoryRequest string `json:"memory_request" default:"100m"`
+	PostgresExporterCPULimit      string `json:"cpu_limit" default:"100m"`
+	PostgresExporterMemoryLimit   string `json:"memory_limit" default:"100m"`
+	ConfigMapName                 string `json:"configmap_name"`
 }
 
 // Patroni contains Patroni-specific configuration
@@ -98,7 +102,7 @@ type PostgresSpec struct {
 	Volume           `json:"volume,omitempty"`
 	Patroni          `json:"patroni,omitempty"`
 	Resources        `json:"resources,omitempty"`
-	PostgresExporter `json:"postgres_exporter:,omitempty"`
+	PostgresExporter `json:"postgres_exporter,omitempty"`
 
 	TeamID      string `json:"teamId"`
 	DockerImage string `json:"dockerImage,omitempty"`

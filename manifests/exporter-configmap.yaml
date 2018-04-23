@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-exporter-configmap
+data:
+  queries.yaml  : |+
+    pg_postmaster:
+      query: "SELECT pg_postmaster_start_time as start_time_seconds from pg_postmaster_start_time()"
+      metrics:
+        - start_time_seconds:
+            usage: "GAUGE"
+            description: "Time at which postmaster started"
