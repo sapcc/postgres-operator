@@ -569,8 +569,15 @@ func (c *Cluster) generatePodTemplate(
 		},
 		Spec: podSpec,
 	}
+	template.Annotations = map[string]string{}
+
 	if c.OpConfig.KubeIAMRole != "" {
-		template.Annotations = map[string]string{constants.KubeIAmAnnotation: c.OpConfig.KubeIAMRole}
+		template.Annotations[constants.KubeIAmAnnotation] = c.OpConfig.KubeIAMRole
+	}
+
+	if postgresExporterParameters.Image != "" {
+		template.Annotations["prometheus.io/scrape"] = "true"
+		template.Annotations["prometheus.io/port"] = "9187"
 	}
 
 	return &template
@@ -855,18 +862,19 @@ func (c *Cluster) generateService(role PostgresRole, spec *spec.PostgresSpec) *v
 		c.logger.Debugf("No load balancer created for the replica service")
 	}
 
-	if serviceSpec.Type == v1.ServiceTypeClusterIP && spec.PostgresExporter.Image != "" {
-		serviceSpec.Ports = append(
-			serviceSpec.Ports,
-			v1.ServicePort{Name: "metrics", Port: 9178, TargetPort: intstr.IntOrString{IntVal: 9178}},
-		)
+	/*
+		if serviceSpec.Type == v1.ServiceTypeClusterIP && spec.PostgresExporter.Image != "" {
+			serviceSpec.Ports = append(
+				serviceSpec.Ports,
+				v1.ServicePort{Name: "metrics", Port: 9187, TargetPort: intstr.IntOrString{IntVal: 9187}},
+			)
 
-		annotations = map[string]string{
-			"prometheus.io/scrape": "true",
-			"prometheus.io/port":   "9178",
+			annotations = map[string]string{
+				"prometheus.io/scrape": "true",
+				"prometheus.io/port":   "9187",
+			}
 		}
-	}
-
+	*/
 	service := &v1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        c.serviceName(role),
