@@ -453,6 +453,10 @@ func (c *Cluster) generatePodTemplate(
 		configMap, err := c.KubeClient.ConfigMaps(c.Namespace).
 			Get(postgresExporterParameters.ConfigMapName, metav1.GetOptions{})
 
+		if err != nil && postgresExporterParameters.ConfigMapName != "" {
+			c.logger.Infof("No exporter configMap found with name: %s!", postgresExporterParameters.ConfigMapName)
+		}
+
 		if err == nil {
 			podSpec.Volumes = append(
 				podSpec.Volumes,
