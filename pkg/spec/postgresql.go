@@ -50,6 +50,7 @@ type PostgresExporter struct {
 	PostgresExporterCPULimit      string `json:"cpu_limit" default:"100m"`
 	PostgresExporterMemoryLimit   string `json:"memory_limit" default:"100m"`
 	ConfigMapName                 string `json:"configmap_name"`
+	Database                      string `json:"database"`
 }
 
 // Patroni contains Patroni-specific configuration

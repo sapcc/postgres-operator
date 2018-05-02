@@ -481,6 +481,7 @@ func (c *Cluster) generatePodTemplate(
 			)
 			args = append(args, "--extend.query-path=/config/queries.yaml")
 		}
+		pgUser := c.pgUsers[c.Spec.Databases[postgresExporterParameters.Database]]
 		podSpec.Containers = append(
 			podSpec.Containers,
 			v1.Container{
@@ -496,23 +497,16 @@ func (c *Cluster) generatePodTemplate(
 				},
 				Env: []v1.EnvVar{
 					{
-						Name: "DATA_SOURCE_PASS",
-						ValueFrom: &v1.EnvVarSource{
-							SecretKeyRef: &v1.SecretKeySelector{
-								LocalObjectReference: v1.LocalObjectReference{
-									Name: c.credentialSecretName(c.OpConfig.SuperUsername),
-								},
-								Key: "password",
-							},
-						},
+						Name:  "DATA_SOURCE_PASS",
+						Value: pgUser.Password,
 					},
 					{
 						Name:  "DATA_SOURCE_USER",
-						Value: c.OpConfig.SuperUsername,
+						Value: pgUser.Name,
 					},
 					{
 						Name:  "DATA_SOURCE_URI",
-						Value: "localhost:5432",
+						Value: "localhost:5432/" + postgresExporterParameters.Database,
 					},
 				},
 				VolumeMounts: volumeMounts,

@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-pod-config
+  namespace: default
+data:
+  USE_WALE: 'true'
+  WAL_S3_BUCKET: bucket-name
+  DEVELOP: 'true'
+  BACKUP_SCHEDULE: '00 01 * * *'
+  AWS_ACCESS_KEY_ID: 
+  AWS_SECRET_ACCESS_KEY: 
+  AWS_REGION: eu-central-1
