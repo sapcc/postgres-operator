@@ -15,7 +15,7 @@ data:
   debug_logging: "true"
   master_dns_name_format: '{cluster}.{team}.staging.{hostedzone}'
   replica_dns_name_format: '{cluster}-repl.{team}.staging.{hostedzone}'
-  docker_image: hub.global.cloud.sap/monsoon/spilo:20180427162023
+  docker_image: stefanhipfel/spilo:latest
   secret_name_template: '{username}.{cluster}.credentials'
   etcd_host: ""
   infrastructure_roles_secret_name: postgresql-infrastructure-roles
@@ -47,5 +47,3 @@ data:
   node_eol_label: "lifecycle-status:pending-decommission"
   node_readiness_label: ""
   team_api_role_configuration: "log_statement:all"
-
-  pod_environment_configmap: postgres-pod-config

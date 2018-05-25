@@ -1,9 +1,9 @@
 apiVersion: "acid.zalan.do/v1"
 kind: postgresql
 metadata:
-  name: acid-minimal20
+  name: keystone-test
 spec:
-  teamId: "ACID"
+  teamId: "keystone"
   enableMasterLoadBalancer: false
   enableReplicaLoadBalancer: false
   volume:
@@ -13,21 +13,29 @@ spec:
     cpu_request: "100m"
     memory_request: "50Mi"
     configmap_name: postgres-exporter-configmap
-    database: foo
+    database: keystonedb
   numberOfInstances: 1
   users:
     # database owner
-    zalando:
+    root:
     - superuser
     - createdb
-
-    # role for application foo
-    foo_user:
+    keystone:
+    - superuser
+    - createdb
   
   #databases: name->owner
   databases:
-    foo: zalando
+    keystonedb: keystone
+    test: root
   postgresql:
     version: "10"
   patroni:
     ttl: 3000
+
+  wale_backup:
+    WAL_S3_BUCKET: "d058695"
+    BACKUP_SCHEDULE: "* * * * *"
+    AWS_ACCESS_KEY_ID: "key"
+    AWS_SECRET_ACCESS_KEY: "secret"
+    AWS_REGION: "qa-de-1"

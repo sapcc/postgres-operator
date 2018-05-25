@@ -53,6 +53,15 @@ type PostgresExporter struct {
 	Database                      string `json:"database"`
 }
 
+// AWSBackup contains postgres exporter specific configs
+type WaleBackup struct {
+	S3Bucket           string `json:"WAL_S3_BUCKET"`
+	BackupSchedule     string `json:"BACKUP_SCHEDULE" default:"100m"`
+	AwsAccessKeyID     string `json:"AWS_ACCESS_KEY_ID" default:"100m"`
+	AwsSecretAccessKey string `json:"AWS_SECRET_ACCESS_KEY" default:"100m"`
+	AwsRegion          string `json:"AWS_REGION" default:"100m"`
+}
+
 // Patroni contains Patroni-specific configuration
 type Patroni struct {
 	InitDB               map[string]string `json:"initdb"`
@@ -104,6 +113,7 @@ type PostgresSpec struct {
 	Patroni          `json:"patroni,omitempty"`
 	Resources        `json:"resources,omitempty"`
 	PostgresExporter `json:"postgres_exporter,omitempty"`
+	WaleBackup       `json:"wale_backup,omitempty"`
 
 	TeamID      string `json:"teamId"`
 	DockerImage string `json:"dockerImage,omitempty"`

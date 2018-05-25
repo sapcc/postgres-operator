@@ -3,6 +3,7 @@ package cluster
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"sort"
 
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -290,6 +291,7 @@ func (c *Cluster) generatePodTemplate(
 	patroniParameters *spec.Patroni,
 	postgresExporterParameters *spec.PostgresExporter,
 	cloneDescription *spec.CloneDescription,
+	waleBackupParameters *spec.WaleBackup,
 	dockerImage *string,
 	customPodEnvVars map[string]string,
 ) *v1.PodTemplateSpec {
@@ -360,11 +362,6 @@ func (c *Cluster) generatePodTemplate(
 	if spiloConfiguration != "" {
 		envVars = append(envVars, v1.EnvVar{Name: "SPILO_CONFIGURATION", Value: spiloConfiguration})
 	}
-	if c.OpConfig.WALES3Bucket != "" {
-		envVars = append(envVars, v1.EnvVar{Name: "WAL_S3_BUCKET", Value: c.OpConfig.WALES3Bucket})
-		envVars = append(envVars, v1.EnvVar{Name: "WAL_BUCKET_SCOPE_SUFFIX", Value: getWALBucketScopeSuffix(string(uid))})
-		envVars = append(envVars, v1.EnvVar{Name: "WAL_BUCKET_SCOPE_PREFIX", Value: ""})
-	}
 
 	if c.patroniUsesKubernetes() {
 		envVars = append(envVars, v1.EnvVar{Name: "DCS_ENABLE_KUBERNETES_API", Value: "true"})
@@ -373,7 +370,13 @@ func (c *Cluster) generatePodTemplate(
 	}
 
 	if cloneDescription.ClusterName != "" {
-		envVars = append(envVars, c.generateCloneEnvironment(cloneDescription)...)
+		envVars = append(envVars, c.generateCloneEnvironment(cloneDescription, waleBackupParameters)...)
+	}
+
+	if waleBackupParameters.S3Bucket != "" {
+		envVars = append(envVars, v1.EnvVar{Name: "WAL_BUCKET_SCOPE_SUFFIX", Value: getWALBucketScopeSuffix(string(uid))})
+		envVars = append(envVars, v1.EnvVar{Name: "WAL_BUCKET_SCOPE_PREFIX", Value: ""})
+		envVars = append(envVars, c.generateWaleBackupEnvironment(waleBackupParameters)...)
 	}
 
 	var names []string
@@ -485,7 +488,7 @@ func (c *Cluster) generatePodTemplate(
 		podSpec.Containers = append(
 			podSpec.Containers,
 			v1.Container{
-				Name:            "exporter-sidecar",
+				Name:            "pgexporter-sidecar",
 				Image:           postgresExporterParameters.Image,
 				ImagePullPolicy: v1.PullIfNotPresent,
 				Resources:       *resourceRequirementsPostgresExporterSidecar,
@@ -650,7 +653,7 @@ func (c *Cluster) generateStatefulSet(spec *spec.PostgresSpec) (*v1beta1.Statefu
 			customPodEnvVars = cm.Data
 		}
 	}
-	podTemplate := c.generatePodTemplate(c.Postgresql.GetUID(), resourceRequirements, resourceRequirementsScalyrSidecar, resourceRequirementsPostgresExporterSidecar, &spec.Tolerations, &spec.PostgresqlParam, &spec.Patroni, &spec.PostgresExporter, &spec.Clone, &spec.DockerImage, customPodEnvVars)
+	podTemplate := c.generatePodTemplate(c.Postgresql.GetUID(), resourceRequirements, resourceRequirementsScalyrSidecar, resourceRequirementsPostgresExporterSidecar, &spec.Tolerations, &spec.PostgresqlParam, &spec.Patroni, &spec.PostgresExporter, &spec.Clone, &spec.WaleBackup, &spec.DockerImage, customPodEnvVars)
 	volumeClaimTemplate, err := generatePersistentVolumeClaimTemplate(spec.Volume.Size, spec.Volume.StorageClass)
 	if err != nil {
 		return nil, fmt.Errorf("could not generate volume claim template: %v", err)
@@ -901,7 +904,20 @@ func (c *Cluster) generateEndpoint(role PostgresRole, subsets []v1.EndpointSubse
 	return endpoints
 }
 
-func (c *Cluster) generateCloneEnvironment(description *spec.CloneDescription) []v1.EnvVar {
+func (c *Cluster) generateWaleBackupEnvironment(waleParams *spec.WaleBackup) []v1.EnvVar {
+	result := make([]v1.EnvVar, 0)
+
+	val := reflect.ValueOf(*waleParams)
+	t := val.Type()
+	for i := 0; i < t.NumField(); i++ {
+		tagName := t.Field(i).Tag.Get("json")
+		fieldValue := val.Field(i).String()
+		result = append(result, v1.EnvVar{Name: tagName, Value: fieldValue})
+	}
+	return result
+}
+
+func (c *Cluster) generateCloneEnvironment(description *spec.CloneDescription, waleParams *spec.WaleBackup) []v1.EnvVar {
 	result := make([]v1.EnvVar, 0)
 
 	if description.ClusterName == "" {
@@ -934,7 +950,7 @@ func (c *Cluster) generateCloneEnvironment(description *spec.CloneDescription) [
 	} else {
 		// cloning with S3, find out the bucket to clone
 		result = append(result, v1.EnvVar{Name: "CLONE_METHOD", Value: "CLONE_WITH_WALE"})
-		result = append(result, v1.EnvVar{Name: "CLONE_WAL_S3_BUCKET", Value: c.OpConfig.WALES3Bucket})
+		result = append(result, v1.EnvVar{Name: "CLONE_WAL_S3_BUCKET", Value: waleParams.S3Bucket})
 		result = append(result, v1.EnvVar{Name: "CLONE_TARGET_TIME", Value: description.EndTimestamp})
 		result = append(result, v1.EnvVar{Name: "CLONE_WAL_BUCKET_SCOPE_SUFFIX", Value: getWALBucketScopeSuffix(description.Uid)})
 		result = append(result, v1.EnvVar{Name: "CLONE_WAL_BUCKET_SCOPE_PREFIX", Value: ""})
