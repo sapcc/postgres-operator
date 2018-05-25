@@ -53,7 +53,7 @@ type PostgresExporter struct {
 	Database                      string `json:"database"`
 }
 
-// AWSBackup contains postgres exporter specific configs
+// WaleBackup contains wal-e backup specific configs
 type WaleBackup struct {
 	S3Bucket           string `json:"WAL_S3_BUCKET"`
 	BackupSchedule     string `json:"BACKUP_SCHEDULE" default:"100m"`
