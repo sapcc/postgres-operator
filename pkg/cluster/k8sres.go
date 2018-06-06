@@ -705,8 +705,6 @@ func generatePersistentVolumeClaimTemplate(volumeSize, volumeStorageClass string
 	if volumeStorageClass != "" {
 		// TODO: check if storage class exists
 		metadata.Annotations = map[string]string{"volume.beta.kubernetes.io/storage-class": volumeStorageClass}
-	} else {
-		metadata.Annotations = map[string]string{"volume.alpha.kubernetes.io/storage-class": "default"}
 	}
 
 	quantity, err := resource.ParseQuantity(volumeSize)
@@ -717,7 +715,7 @@ func generatePersistentVolumeClaimTemplate(volumeSize, volumeStorageClass string
 	volumeClaim := &v1.PersistentVolumeClaim{
 		ObjectMeta: metadata,
 		Spec: v1.PersistentVolumeClaimSpec{
-			AccessModes: []v1.PersistentVolumeAccessMode{v1.ReadWriteOnce},
+			AccessModes: []v1.PersistentVolumeAccessMode{v1.ReadWriteMany},
 			Resources: v1.ResourceRequirements{
 				Requests: v1.ResourceList{
 					v1.ResourceStorage: quantity,
