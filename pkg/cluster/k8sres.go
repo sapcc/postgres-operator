@@ -579,6 +579,7 @@ func (c *Cluster) generatePodTemplate(
 	if postgresExporterParameters.Image != "" {
 		template.Annotations["prometheus.io/scrape"] = "true"
 		template.Annotations["prometheus.io/port"] = "9187"
+		template.Annotations["prometheus.io/port_1"] = "9200"
 	}
 
 	return &template
