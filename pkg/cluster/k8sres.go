@@ -430,6 +430,10 @@ func (c *Cluster) generatePodTemplate(
 				ContainerPort: 8080,
 				Protocol:      v1.ProtocolTCP,
 			},
+			{
+				ContainerPort: 9200,
+				Protocol:      v1.ProtocolTCP,
+			},
 		},
 		VolumeMounts: volumeMounts,
 		Env:          envVars,
@@ -571,15 +575,16 @@ func (c *Cluster) generatePodTemplate(
 		Spec: podSpec,
 	}
 	template.Annotations = map[string]string{}
+	//For wal-e prometheus exporter
+	template.Annotations["prometheus.io/scrape"] = "true"
+	template.Annotations["prometheus.io/port"] = "9200"
 
 	if c.OpConfig.KubeIAMRole != "" {
 		template.Annotations[constants.KubeIAmAnnotation] = c.OpConfig.KubeIAMRole
 	}
 
 	if postgresExporterParameters.Image != "" {
-		template.Annotations["prometheus.io/scrape"] = "true"
-		template.Annotations["prometheus.io/port"] = "9187"
-		template.Annotations["prometheus.io/port_1"] = "9200"
+		template.Annotations["prometheus.io/port_1"] = "9187"
 	}
 
 	return &template
