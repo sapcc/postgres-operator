@@ -926,7 +926,7 @@ func (c *Cluster) generatePersistentVolume(instance int, spec *spec.PostgresSpec
 func (c *Cluster) generatePersistentVolumeClaim(local bool, spec *spec.PostgresSpec, instanceNumber int, pvInstance int) (*v1.PersistentVolumeClaim, error) {
 	name := fmt.Sprintf("pgdata-%s-%s-%d", spec.TeamID, spec.ClusterName, instanceNumber)
 	quantity, err := resource.ParseQuantity(spec.Volume.Size)
-	storageClassName := "standard"
+	storageClassName := ""
 	volumeName := ""
 	if err != nil {
 		return nil, fmt.Errorf("could not parse volume size: %v", err)
@@ -936,7 +936,7 @@ func (c *Cluster) generatePersistentVolumeClaim(local bool, spec *spec.PostgresS
 	if local {
 		lbls["storage-tier"] = "local"
 		storageClassName = "local"
-		volumeName = fmt.Sprintf("barbican-local-pv-volume-%d", pvInstance)
+		volumeName = fmt.Sprintf("%s-local-pv-volume-%d", spec.TeamID, pvInstance)
 	}
 
 	pvc := &v1.PersistentVolumeClaim{
