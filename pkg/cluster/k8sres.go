@@ -893,6 +893,75 @@ func (c *Cluster) generateService(role PostgresRole, spec *spec.PostgresSpec) *v
 	return service
 }
 
+func (c *Cluster) generatePersistentVolume(instance int, spec *spec.PostgresSpec) (*v1.PersistentVolume, error) {
+	storage, err := resource.ParseQuantity(spec.Volume.Size)
+	lbls := make(map[string]string)
+	lbls["storage-tier"] = "local"
+
+	if err != nil {
+		return nil, fmt.Errorf("could not parse storage quantity: %v", err)
+	}
+	pv := &v1.PersistentVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   fmt.Sprintf("barbican-local-pv-volume-%d", instance),
+			Labels: lbls,
+		},
+		Spec: v1.PersistentVolumeSpec{
+			Capacity: v1.ResourceList{
+				v1.ResourceStorage: storage,
+			},
+			StorageClassName: "local",
+			AccessModes:      []v1.PersistentVolumeAccessMode{v1.ReadWriteMany},
+			PersistentVolumeSource: v1.PersistentVolumeSource{
+				HostPath: &v1.HostPathVolumeSource{
+					Path: "/mnt/postgres_cluster/" + spec.TeamID + "-" + spec.ClusterName,
+				},
+			},
+		},
+	}
+
+	return pv, nil
+}
+
+func (c *Cluster) generatePersistentVolumeClaim(local bool, spec *spec.PostgresSpec, instanceNumber int, pvInstance int) (*v1.PersistentVolumeClaim, error) {
+	name := fmt.Sprintf("pgdata-%s-%s-%d", spec.TeamID, spec.ClusterName, instanceNumber)
+	quantity, err := resource.ParseQuantity(spec.Volume.Size)
+	storageClassName := "standard"
+	volumeName := ""
+	if err != nil {
+		return nil, fmt.Errorf("could not parse volume size: %v", err)
+	}
+	lbls := make(map[string]string)
+
+	if local {
+		lbls["storage-tier"] = "local"
+		storageClassName = "local"
+		volumeName = fmt.Sprintf("barbican-local-pv-volume-%d", pvInstance)
+	}
+
+	pvc := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: c.Namespace,
+			Labels:    c.labelsSet(false),
+		},
+		Spec: v1.PersistentVolumeClaimSpec{
+			Selector: &metav1.LabelSelector{
+				MatchLabels: lbls,
+			},
+			StorageClassName: &storageClassName,
+			VolumeName:       volumeName,
+			AccessModes:      []v1.PersistentVolumeAccessMode{v1.ReadWriteMany},
+			Resources: v1.ResourceRequirements{
+				Requests: v1.ResourceList{
+					v1.ResourceStorage: quantity,
+				},
+			},
+		},
+	}
+	return pvc, nil
+}
+
 func (c *Cluster) generateEndpoint(role PostgresRole, subsets []v1.EndpointSubset) *v1.Endpoints {
 	endpoints := &v1.Endpoints{
 		ObjectMeta: metav1.ObjectMeta{

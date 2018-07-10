@@ -246,6 +246,28 @@ func (c *Cluster) createService(role PostgresRole) (*v1.Service, error) {
 	return service, nil
 }
 
+func (c *Cluster) createPersistentVolume(instance int) (*v1.PersistentVolume, error) {
+	c.setProcessName("creating pv")
+	pvSpec, err := c.generatePersistentVolume(instance, &c.Spec)
+	pv, err := c.KubeClient.PersistentVolumes().Create(pvSpec)
+	if err != nil {
+		return nil, err
+	}
+
+	return pv, nil
+}
+
+func (c *Cluster) createPersistentVolumeClaim(useLocalPV bool, instance int, pvInstance int) (*v1.PersistentVolumeClaim, error) {
+	c.setProcessName("creating pvc")
+	pvcSpec, err := c.generatePersistentVolumeClaim(useLocalPV, &c.Spec, instance, pvInstance)
+	pvc, err := c.KubeClient.PersistentVolumeClaims(pvcSpec.Namespace).Create(pvcSpec)
+	if err != nil {
+		return nil, err
+	}
+
+	return pvc, nil
+}
+
 func (c *Cluster) updateService(role PostgresRole, newService *v1.Service) error {
 	c.setProcessName("updating %v service", role)
 
