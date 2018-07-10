@@ -903,7 +903,7 @@ func (c *Cluster) generatePersistentVolume(instance int, spec *spec.PostgresSpec
 	}
 	pv := &v1.PersistentVolume{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:   fmt.Sprintf("barbican-local-pv-volume-%d", instance),
+			Name:   fmt.Sprintf("%s-local-pv-volume-%d", spec.TeamID, instance),
 			Labels: lbls,
 		},
 		Spec: v1.PersistentVolumeSpec{
