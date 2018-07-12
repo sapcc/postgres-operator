@@ -6,6 +6,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
+	"os"
 	"reflect"
 	"regexp"
 	"sync"
@@ -70,6 +72,7 @@ type Cluster struct {
 	userSyncStrategy spec.UserSyncer
 	deleteOptions    *metav1.DeleteOptions
 	podEventsQueue   *cache.FIFO
+	regionName       string
 
 	teamsAPIClient   teams.Interface
 	oauthTokenGetter OAuthTokenGetter
@@ -99,6 +102,13 @@ func New(cfg Config, kubeClient k8sutil.KubernetesClient, pgSpec spec.Postgresql
 		return fmt.Sprintf("%s-%s", e.PodName, e.ResourceVersion), nil
 	})
 
+	configRegionName := os.Getenv("REGION_NAME")
+	if configRegionName != "" {
+		log.Printf("Region name: %v", configRegionName)
+	} else {
+		log.Fatalf("no region name given!")
+	}
+
 	cluster := &Cluster{
 		Config:         cfg,
 		Postgresql:     pgSpec,
@@ -113,6 +123,7 @@ func New(cfg Config, kubeClient k8sutil.KubernetesClient, pgSpec spec.Postgresql
 		deleteOptions:    &metav1.DeleteOptions{OrphanDependents: &orphanDependents},
 		podEventsQueue:   podEventsQueue,
 		KubeClient:       kubeClient,
+		regionName:       configRegionName,
 	}
 	cluster.logger = logger.WithField("pkg", "cluster").WithField("cluster-name", cluster.clusterName())
 	cluster.teamsAPIClient = teams.NewTeamsAPI(cfg.OpConfig.TeamsAPIUrl, logger)
