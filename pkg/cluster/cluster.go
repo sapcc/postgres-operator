@@ -47,11 +47,12 @@ type Config struct {
 }
 
 type kubeResources struct {
-	Services            map[PostgresRole]*v1.Service
-	Endpoints           map[PostgresRole]*v1.Endpoints
-	Secrets             map[types.UID]*v1.Secret
-	Statefulset         *v1beta1.StatefulSet
-	PodDisruptionBudget *policybeta1.PodDisruptionBudget
+	Services              map[PostgresRole]*v1.Service
+	Endpoints             map[PostgresRole]*v1.Endpoints
+	Secrets               map[types.UID]*v1.Secret
+	Statefulset           *v1beta1.StatefulSet
+	PodDisruptionBudget   *policybeta1.PodDisruptionBudget
+	LocalPersistentVolume map[string]*v1.PersistentVolume
 	//Pods are treated separately
 	//PVCs are treated separately
 }
@@ -251,23 +252,36 @@ func (c *Cluster) Create() error {
 	numberOfInstances := c.getNumberOfInstances(&c.Spec)
 	numberOfLocalPv := int(float64(numberOfInstances) * 0.4)
 	numberOfPv := int(numberOfInstances - int32(numberOfLocalPv))
-	fmt.Println("STARTING", numberOfInstances, numberOfLocalPv, numberOfPv)
+
 	for i := 0; i < numberOfPv; i++ {
 		pvc, err := c.createPersistentVolumeClaim(false, i, 0)
 		if err != nil {
-			return fmt.Errorf("could not create pvc: %v", err)
+			if k8sutil.ResourceAlreadyExists(err) {
+				c.logger.Infof("pvc already exists: %v", err)
+			} else {
+				return fmt.Errorf("could not create pvc: %v", err)
+			}
 		}
 		c.logger.Infof("pvc %q has been successfully created", util.NameFromMeta(pvc.ObjectMeta))
 	}
 	for i := 0; i < numberOfLocalPv; i++ {
 		pv, err := c.createPersistentVolume(i)
 		if err != nil {
-			return fmt.Errorf("could not create pv: %v", err)
+			if k8sutil.ResourceAlreadyExists(err) {
+				c.logger.Infof("local pv already exists: %v", err)
+			} else {
+				return fmt.Errorf("could not create local pv: %v", err)
+			}
 		}
+		c.LocalPersistentVolume[pv.Name] = pv
 		c.logger.Infof("pv %q has been successfully created", util.NameFromMeta(pv.ObjectMeta))
 		pvc, err := c.createPersistentVolumeClaim(true, numberOfPv+i, i)
 		if err != nil {
-			return fmt.Errorf("could not create pvc: %v", err)
+			if k8sutil.ResourceAlreadyExists(err) {
+				c.logger.Infof("local pvc already exists: %v", err)
+			} else {
+				return fmt.Errorf("could not create pvc: %v", err)
+			}
 		}
 		c.logger.Infof("pvc %q has been successfully created", util.NameFromMeta(pvc.ObjectMeta))
 	}
@@ -647,6 +661,8 @@ func (c *Cluster) Delete() {
 	if err := c.deletePatroniClusterObjects(); err != nil {
 		c.logger.Warningf("could not remove leftover patroni objects; %v", err)
 	}
+
+	c.deleteLocalPV()
 
 }
 
