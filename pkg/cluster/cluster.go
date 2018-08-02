@@ -47,12 +47,12 @@ type Config struct {
 }
 
 type kubeResources struct {
-	Services              map[PostgresRole]*v1.Service
-	Endpoints             map[PostgresRole]*v1.Endpoints
-	Secrets               map[types.UID]*v1.Secret
-	Statefulset           *v1beta1.StatefulSet
-	PodDisruptionBudget   *policybeta1.PodDisruptionBudget
-	LocalPersistentVolume map[string]*v1.PersistentVolume
+	Services               map[PostgresRole]*v1.Service
+	Endpoints              map[PostgresRole]*v1.Endpoints
+	Secrets                map[types.UID]*v1.Secret
+	Statefulset            *v1beta1.StatefulSet
+	PodDisruptionBudget    *policybeta1.PodDisruptionBudget
+	LocalPersistentVolumes map[string]*v1.PersistentVolume
 	//Pods are treated separately
 	//PVCs are treated separately
 }
@@ -117,9 +117,10 @@ func New(cfg Config, kubeClient k8sutil.KubernetesClient, pgSpec spec.Postgresql
 		systemUsers:    make(map[string]spec.PgUser),
 		podSubscribers: make(map[spec.NamespacedName]chan spec.PodEvent),
 		kubeResources: kubeResources{
-			Secrets:   make(map[types.UID]*v1.Secret),
-			Services:  make(map[PostgresRole]*v1.Service),
-			Endpoints: make(map[PostgresRole]*v1.Endpoints)},
+			Secrets:                make(map[types.UID]*v1.Secret),
+			Services:               make(map[PostgresRole]*v1.Service),
+			LocalPersistentVolumes: make(map[string]*v1.PersistentVolume),
+			Endpoints:              make(map[PostgresRole]*v1.Endpoints)},
 		userSyncStrategy: users.DefaultUserSyncStrategy{},
 		deleteOptions:    &metav1.DeleteOptions{OrphanDependents: &orphanDependents},
 		podEventsQueue:   podEventsQueue,
@@ -273,7 +274,7 @@ func (c *Cluster) Create() error {
 				return fmt.Errorf("could not create local pv: %v", err)
 			}
 		}
-		c.LocalPersistentVolume[pv.Name] = pv
+		c.LocalPersistentVolumes[pv.Name] = pv
 		c.logger.Infof("pv %q has been successfully created", util.NameFromMeta(pv.ObjectMeta))
 		pvc, err := c.createPersistentVolumeClaim(true, numberOfPv+i, i)
 		if err != nil {

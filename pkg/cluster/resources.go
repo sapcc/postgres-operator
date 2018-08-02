@@ -418,8 +418,9 @@ func (c *Cluster) updatePodDisruptionBudget(pdb *policybeta1.PodDisruptionBudget
 }
 
 func (c *Cluster) deleteLocalPV() {
-	c.logger.Debug("deleting pod disruption budget")
-	for _, pv := range c.LocalPersistentVolume {
+	c.logger.Debug("deleting local pvs")
+	for _, pv := range c.LocalPersistentVolumes {
+		c.logger.Debug("deleting local pv: ", pv.Name)
 		err := c.KubeClient.PersistentVolumes().Delete(pv.Name, c.deleteOptions)
 		if err != nil {
 			c.logger.Warnf("could not delete local pv: %v", err)
