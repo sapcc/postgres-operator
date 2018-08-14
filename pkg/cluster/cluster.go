@@ -250,41 +250,11 @@ func (c *Cluster) Create() error {
 		c.logger.Infof("%s service %q has been successfully created", role, util.NameFromMeta(service.ObjectMeta))
 	}
 
-	numberOfInstances := c.getNumberOfInstances(&c.Spec)
-	numberOfLocalPv := int(float64(numberOfInstances) * 0.4)
-	numberOfPv := int(numberOfInstances - int32(numberOfLocalPv))
-
-	for i := 0; i < numberOfPv; i++ {
-		pvc, err := c.createPersistentVolumeClaim(false, i, 0)
-		if err != nil {
-			if k8sutil.ResourceAlreadyExists(err) {
-				c.logger.Infof("pvc already exists: %v", err)
-			} else {
-				return fmt.Errorf("could not create pvc: %v", err)
-			}
+	// create and use local storage for postgres
+	if c.Postgresql.Spec.UseLocalStorage {
+		if err = c.createLocalVolumes(); err != nil {
+			return err
 		}
-		c.logger.Infof("pvc %q has been successfully created", util.NameFromMeta(pvc.ObjectMeta))
-	}
-	for i := 0; i < numberOfLocalPv; i++ {
-		pv, err := c.createPersistentVolume(i)
-		if err != nil {
-			if k8sutil.ResourceAlreadyExists(err) {
-				c.logger.Infof("local pv already exists: %v", err)
-			} else {
-				return fmt.Errorf("could not create local pv: %v", err)
-			}
-		}
-		c.LocalPersistentVolumes[pv.Name] = pv
-		c.logger.Infof("pv %q has been successfully created", util.NameFromMeta(pv.ObjectMeta))
-		pvc, err := c.createPersistentVolumeClaim(true, numberOfPv+i, i)
-		if err != nil {
-			if k8sutil.ResourceAlreadyExists(err) {
-				c.logger.Infof("local pvc already exists: %v", err)
-			} else {
-				return fmt.Errorf("could not create pvc: %v", err)
-			}
-		}
-		c.logger.Infof("pvc %q has been successfully created", util.NameFromMeta(pvc.ObjectMeta))
 	}
 
 	if err = c.initUsers(); err != nil {
@@ -340,6 +310,46 @@ func (c *Cluster) Create() error {
 		c.logger.Errorf("could not list resources: %v", err)
 	}
 
+	return nil
+}
+
+func (c *Cluster) createLocalVolumes() error {
+	numberOfInstances := c.getNumberOfInstances(&c.Spec)
+	numberOfLocalPv := int(float64(numberOfInstances) * 0.4)
+	numberOfPv := int(numberOfInstances - int32(numberOfLocalPv))
+
+	for i := 0; i < numberOfPv; i++ {
+		pvc, err := c.createPersistentVolumeClaim(false, i, 0)
+		if err != nil {
+			if k8sutil.ResourceAlreadyExists(err) {
+				c.logger.Infof("pvc already exists: %v", err)
+			} else {
+				return fmt.Errorf("could not create pvc: %v", err)
+			}
+		}
+		c.logger.Infof("pvc %q has been successfully created", util.NameFromMeta(pvc.ObjectMeta))
+	}
+	for i := 0; i < numberOfLocalPv; i++ {
+		pv, err := c.createPersistentVolume(i)
+		if err != nil {
+			if k8sutil.ResourceAlreadyExists(err) {
+				c.logger.Infof("local pv already exists: %v", err)
+			} else {
+				return fmt.Errorf("could not create local pv: %v", err)
+			}
+		}
+		c.LocalPersistentVolumes[pv.Name] = pv
+		c.logger.Infof("pv %q has been successfully created", util.NameFromMeta(pv.ObjectMeta))
+		pvc, err := c.createPersistentVolumeClaim(true, numberOfPv+i, i)
+		if err != nil {
+			if k8sutil.ResourceAlreadyExists(err) {
+				c.logger.Infof("local pvc already exists: %v", err)
+			} else {
+				return fmt.Errorf("could not create pvc: %v", err)
+			}
+		}
+		c.logger.Infof("pvc %q has been successfully created", util.NameFromMeta(pvc.ObjectMeta))
+	}
 	return nil
 }
 
