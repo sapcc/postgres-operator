@@ -245,7 +245,9 @@ func (c *Cluster) nodeAffinity() *v1.Affinity {
 		return nil
 	}
 	for k, v := range c.OpConfig.NodeReadinessLabel {
-		va := strings.Split(v, ",")
+		v = strings.Trim(v, "'")
+		v = strings.TrimSpace(v)
+		va := strings.Split(v, "/")
 		matchExpressions = append(matchExpressions, v1.NodeSelectorRequirement{
 			Key:      k,
 			Operator: v1.NodeSelectorOpIn,
