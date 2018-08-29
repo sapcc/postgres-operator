@@ -112,12 +112,28 @@ func MapContains(haystack, needle map[string]string) bool {
 
 	for k, v := range needle {
 		v2, ok := haystack[k]
-		if !ok || v2 != v {
-			return false
+		if strings.Contains(v, ",") {
+			va := strings.Split(v, ",")
+			if ok := stringInArray(v2, va); !ok {
+				return false
+			}
+		} else {
+			if !ok || v2 != v {
+				return false
+			}
 		}
 	}
 
 	return true
+}
+
+func stringInArray(str string, arr []string) bool {
+	for _, v := range arr {
+		if v == str {
+			return true
+		}
+	}
+	return false
 }
 
 func Coalesce(val, defaultVal string) string {

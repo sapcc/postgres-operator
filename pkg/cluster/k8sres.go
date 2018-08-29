@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -244,10 +245,11 @@ func (c *Cluster) nodeAffinity() *v1.Affinity {
 		return nil
 	}
 	for k, v := range c.OpConfig.NodeReadinessLabel {
+		va := strings.Split(v, ",")
 		matchExpressions = append(matchExpressions, v1.NodeSelectorRequirement{
 			Key:      k,
 			Operator: v1.NodeSelectorOpIn,
-			Values:   []string{v},
+			Values:   va,
 		})
 	}
 
