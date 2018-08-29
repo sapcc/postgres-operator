@@ -115,7 +115,7 @@ type PostgresSpec struct {
 	PostgresExporter `json:"postgres_exporter,omitempty"`
 	WaleBackup       `json:"wale_backup,omitempty"`
 
-	UseLocalStorage bool `name:"use_local_storage" default:"true"`
+	UseLocalStorage bool `json:"use_local_storage" default:"true"`
 
 	TeamID      string `json:"teamId"`
 	DockerImage string `json:"dockerImage,omitempty"`
