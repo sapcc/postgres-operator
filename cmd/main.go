@@ -3,11 +3,13 @@ package main
 import (
 	"flag"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/zalando-incubator/postgres-operator/pkg/controller"
 	"github.com/zalando-incubator/postgres-operator/pkg/spec"
 	"github.com/zalando-incubator/postgres-operator/pkg/util/k8sutil"
@@ -18,6 +20,11 @@ var (
 	outOfCluster   bool
 	version        string
 	config         spec.ControllerConfig
+
+	listenMetricsAddress = flag.String(
+		"web.listen-address", ":9290",
+		"Address to listen on for web interface and telemetry.",
+	)
 )
 
 func init() {
@@ -45,6 +52,15 @@ func main() {
 
 	log.SetOutput(os.Stdout)
 	log.Printf("Spilo operator %s\n", version)
+
+	http.Handle("/metrics", promhttp.Handler())
+	go func() {
+		log.Printf("Metrics listening on %s", *listenMetricsAddress)
+		err = http.ListenAndServe(*listenMetricsAddress, nil)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}()
 
 	sigs := make(chan os.Signal, 1)
 	stop := make(chan struct{})

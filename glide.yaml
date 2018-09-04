@@ -44,3 +44,7 @@ import:
   - tools/clientcmd
   - tools/remotecommand
 - package: gopkg.in/yaml.v2
+- package: github.com/prometheus/client_golang
+  version: ^0.9.0-pre1
+  subpackages:
+  - prometheus/promhttp
