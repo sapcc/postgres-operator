@@ -1,5 +1,5 @@
-hash: 6c3710c0cb2ef1ebd7442ee35013a8ad630100d69d4332b5bd837957e3ac4849
-updated: 2018-09-04T14:45:43.419231+02:00
+hash: 0dd50d71646f9b420c8b5563edcee0eb9d4204181a48b5ddff32e27e03b8a973
+updated: 2018-09-04T16:53:09.47557+02:00
 imports:
 - name: github.com/aws/aws-sdk-go
   version: 04abd557eeaab3cfdded45467eea00fc03db9cb9
@@ -80,10 +80,9 @@ imports:
 - name: github.com/golang/glog
   version: 44145f04b68cf362d9c4df2182967c2275eaefed
 - name: github.com/golang/protobuf
-  version: aa810b61a9c79d51363740d207bb46cf8e620ed5
+  version: 4bd1920723d7b7c925de087aa32e2187708897f7
   subpackages:
   - proto
-  - protoc-gen-go
 - name: github.com/google/gofuzz
   version: 44d81051d367757e1c7c6a5a86423ece9afcf63c
 - name: github.com/hashicorp/golang-lru
@@ -111,19 +110,18 @@ imports:
   - jlexer
   - jwriter
 - name: github.com/matttproud/golang_protobuf_extensions
-  version: c12348ce28de40eed0136aa2b644d0ee0650e56c
+  version: fc2b8d3a73c4867e51861bbdd5ae3c1f0869dd6a
   subpackages:
   - pbutil
 - name: github.com/motomux/pretty
   version: b2aad2c9a95d14eb978f29baa6e3a5c3c20eef30
 - name: github.com/prometheus/client_golang
-  version: 967789050ba94deca04a5e84cce8ad472ce313c1
+  version: c5b7fccd204277076155f10851dad72b76a49317
   subpackages:
   - prometheus
-  - prometheus/promauto
   - prometheus/promhttp
 - name: github.com/prometheus/client_model
-  version: 5c3871d89910bfb32f5fcab2aa4b9ec68e65a99f
+  version: fa8ad6fec33561be4280a8f0514318c79d7f6cb6
   subpackages:
   - go
 - name: github.com/prometheus/common

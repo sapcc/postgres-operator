@@ -16,11 +16,10 @@ import (
 )
 
 var (
-	kubeConfigFile string
-	outOfCluster   bool
-	version        string
-	config         spec.ControllerConfig
-
+	kubeConfigFile       string
+	outOfCluster         bool
+	version              string
+	config               spec.ControllerConfig
 	listenMetricsAddress = flag.String(
 		"web.listen-address", ":9290",
 		"Address to listen on for web interface and telemetry.",
