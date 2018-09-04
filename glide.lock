@@ -1,5 +1,5 @@
-hash: 95c4c15d455a76133e3d390c97032f536a671eb9109994488e6e6f7e095a0de3
-updated: 2018-09-04T14:02:44.828117+02:00
+hash: 6c3710c0cb2ef1ebd7442ee35013a8ad630100d69d4332b5bd837957e3ac4849
+updated: 2018-09-04T14:45:43.419231+02:00
 imports:
 - name: github.com/aws/aws-sdk-go
   version: 04abd557eeaab3cfdded45467eea00fc03db9cb9
@@ -80,9 +80,10 @@ imports:
 - name: github.com/golang/glog
   version: 44145f04b68cf362d9c4df2182967c2275eaefed
 - name: github.com/golang/protobuf
-  version: 4bd1920723d7b7c925de087aa32e2187708897f7
+  version: aa810b61a9c79d51363740d207bb46cf8e620ed5
   subpackages:
   - proto
+  - protoc-gen-go
 - name: github.com/google/gofuzz
   version: 44d81051d367757e1c7c6a5a86423ece9afcf63c
 - name: github.com/hashicorp/golang-lru
@@ -119,6 +120,7 @@ imports:
   version: 967789050ba94deca04a5e84cce8ad472ce313c1
   subpackages:
   - prometheus
+  - prometheus/promauto
   - prometheus/promhttp
 - name: github.com/prometheus/client_model
   version: 5c3871d89910bfb32f5fcab2aa4b9ec68e65a99f
