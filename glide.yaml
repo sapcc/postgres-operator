@@ -46,3 +46,4 @@ import:
 - package: gopkg.in/yaml.v2
 - package: github.com/prometheus/client_golang/prometheus
   version: ^0.8.0
+
