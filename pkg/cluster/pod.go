@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"math/rand"
 
+	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/pkg/api/v1"
 
 	"github.com/zalando-incubator/postgres-operator/pkg/spec"
 	"github.com/zalando-incubator/postgres-operator/pkg/util"
+	"k8s.io/api/apps/v1beta1"
 )
 
 func (c *Cluster) listPods() ([]v1.Pod, error) {
@@ -96,12 +97,12 @@ func (c *Cluster) unregisterPodSubscriber(podName spec.NamespacedName) {
 	delete(c.podSubscribers, podName)
 }
 
-func (c *Cluster) registerPodSubscriber(podName spec.NamespacedName) chan spec.PodEvent {
+func (c *Cluster) registerPodSubscriber(podName spec.NamespacedName) chan PodEvent {
 	c.logger.Debugf("subscribing to pod %q", podName)
 	c.podSubscribersMu.Lock()
 	defer c.podSubscribersMu.Unlock()
 
-	ch := make(chan spec.PodEvent)
+	ch := make(chan PodEvent)
 	if _, ok := c.podSubscribers[podName]; ok {
 		panic("pod '" + podName.String() + "' is already subscribed")
 	}
@@ -149,13 +150,19 @@ func (c *Cluster) movePodFromEndOfLifeNode(pod *v1.Pod) (*v1.Pod, error) {
 }
 
 func (c *Cluster) masterCandidate(oldNodeName string) (*v1.Pod, error) {
+
+	// Wait until at least one replica pod will come up
+	if err := c.waitForAnyReplicaLabelReady(); err != nil {
+		c.logger.Warningf("could not find at least one ready replica: %v", err)
+	}
+
 	replicas, err := c.getRolePods(Replica)
 	if err != nil {
 		return nil, fmt.Errorf("could not get replica pods: %v", err)
 	}
 
 	if len(replicas) == 0 {
-		c.logger.Warningf("single master pod for cluster %q, migration will cause disruption of the service")
+		c.logger.Warningf("no available master candidates, migration will cause longer downtime of the master instance")
 		return nil, nil
 	}
 
@@ -168,12 +175,18 @@ func (c *Cluster) masterCandidate(oldNodeName string) (*v1.Pod, error) {
 			}
 		}
 	}
-	c.logger.Debug("no available master candidates on live nodes")
+	c.logger.Warningf("no available master candidates on live nodes")
 	return &replicas[rand.Intn(len(replicas))], nil
 }
 
 // MigrateMasterPod migrates master pod via failover to a replica
 func (c *Cluster) MigrateMasterPod(podName spec.NamespacedName) error {
+	var (
+		masterCandidatePod *v1.Pod
+		err                error
+		eol                bool
+	)
+
 	oldMaster, err := c.KubeClient.Pods(podName.Namespace).Get(podName.Name, metav1.GetOptions{})
 
 	if err != nil {
@@ -182,9 +195,10 @@ func (c *Cluster) MigrateMasterPod(podName spec.NamespacedName) error {
 
 	c.logger.Infof("migrating master pod %q", podName)
 
-	if eol, err := c.podIsEndOfLife(oldMaster); err != nil {
+	if eol, err = c.podIsEndOfLife(oldMaster); err != nil {
 		return fmt.Errorf("could not get node %q: %v", oldMaster.Spec.NodeName, err)
-	} else if !eol {
+	}
+	if !eol {
 		c.logger.Debugf("pod is already on a live node")
 		return nil
 	}
@@ -193,31 +207,45 @@ func (c *Cluster) MigrateMasterPod(podName spec.NamespacedName) error {
 		c.logger.Warningf("pod %q is not a master", podName)
 		return nil
 	}
-
-	masterCandidatePod, err := c.masterCandidate(oldMaster.Spec.NodeName)
-	if err != nil {
-		return fmt.Errorf("could not get new master candidate: %v", err)
+	// we must have a statefulset in the cluster for the migration to work
+	if c.Statefulset == nil {
+		var sset *v1beta1.StatefulSet
+		if sset, err = c.KubeClient.StatefulSets(c.Namespace).Get(c.statefulSetName(),
+			metav1.GetOptions{}); err != nil {
+			return fmt.Errorf("could not retrieve cluster statefulset: %v", err)
+		}
+		c.Statefulset = sset
+	}
+	// We may not have a cached statefulset if the initial cluster sync has aborted, revert to the spec in that case.
+	if *c.Statefulset.Spec.Replicas > 1 {
+		if masterCandidatePod, err = c.masterCandidate(oldMaster.Spec.NodeName); err != nil {
+			return fmt.Errorf("could not get new master candidate: %v", err)
+		}
+	} else {
+		c.logger.Warningf("single master pod for cluster %q, migration will cause longer downtime of the master instance", c.clusterName())
 	}
 
 	// there are two cases for each postgres cluster that has its master pod on the node to migrate from:
 	// - the cluster has some replicas - migrate one of those if necessary and failover to it
 	// - there are no replicas - just terminate the master and wait until it respawns
 	// in both cases the result is the new master up and running on a new node.
-	if masterCandidatePod != nil {
-		pod, err := c.movePodFromEndOfLifeNode(masterCandidatePod)
-		if err != nil {
-			return fmt.Errorf("could not move pod: %v", err)
-		}
 
-		masterCandidateName := util.NameFromMeta(pod.ObjectMeta)
-		if err := c.ManualFailover(oldMaster, masterCandidateName); err != nil {
-			return fmt.Errorf("could not failover to pod %q: %v", masterCandidateName, err)
-		}
-	} else {
+	if masterCandidatePod == nil {
 		if _, err = c.movePodFromEndOfLifeNode(oldMaster); err != nil {
 			return fmt.Errorf("could not move pod: %v", err)
 		}
+		return nil
 	}
+
+	if masterCandidatePod, err = c.movePodFromEndOfLifeNode(masterCandidatePod); err != nil {
+		return fmt.Errorf("could not move pod: %v", err)
+	}
+
+	masterCandidateName := util.NameFromMeta(masterCandidatePod.ObjectMeta)
+	if err := c.Switchover(oldMaster, masterCandidateName); err != nil {
+		return fmt.Errorf("could not failover to pod %q: %v", masterCandidateName, err)
+	}
+
 	return nil
 }
 
@@ -250,6 +278,7 @@ func (c *Cluster) MigrateReplicaPod(podName spec.NamespacedName, fromNodeName st
 func (c *Cluster) recreatePod(podName spec.NamespacedName) (*v1.Pod, error) {
 	ch := c.registerPodSubscriber(podName)
 	defer c.unregisterPodSubscriber(podName)
+	stopChan := make(chan struct{})
 
 	if err := c.KubeClient.Pods(podName.Namespace).Delete(podName.Name, c.deleteOptions); err != nil {
 		return nil, fmt.Errorf("could not delete pod: %v", err)
@@ -258,12 +287,12 @@ func (c *Cluster) recreatePod(podName spec.NamespacedName) (*v1.Pod, error) {
 	if err := c.waitForPodDeletion(ch); err != nil {
 		return nil, err
 	}
-	if pod, err := c.waitForPodLabel(ch, nil); err != nil {
+	pod, err := c.waitForPodLabel(ch, stopChan, nil)
+	if err != nil {
 		return nil, err
-	} else {
-		c.logger.Infof("pod %q has been recreated", podName)
-		return pod, nil
 	}
+	c.logger.Infof("pod %q has been recreated", podName)
+	return pod, nil
 }
 
 func (c *Cluster) recreatePods() error {
@@ -307,7 +336,7 @@ func (c *Cluster) recreatePods() error {
 	if masterPod != nil {
 		// failover if we have not observed a master pod when re-creating former replicas.
 		if newMasterPod == nil && len(replicas) > 0 {
-			if err := c.ManualFailover(masterPod, masterCandidate(replicas)); err != nil {
+			if err := c.Switchover(masterPod, masterCandidate(replicas)); err != nil {
 				c.logger.Warningf("could not perform failover: %v", err)
 			}
 		} else if newMasterPod == nil && len(replicas) == 0 {

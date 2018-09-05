@@ -6,16 +6,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
 
+	"k8s.io/api/apps/v1beta1"
+	"k8s.io/api/core/v1"
+	policybeta1 "k8s.io/api/policy/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/pkg/api/v1"
-	"k8s.io/client-go/pkg/apis/apps/v1beta1"
-	policybeta1 "k8s.io/client-go/pkg/apis/policy/v1beta1"
 
+	acidzalando "github.com/zalando-incubator/postgres-operator/pkg/apis/acid.zalan.do"
+	acidv1 "github.com/zalando-incubator/postgres-operator/pkg/apis/acid.zalan.do/v1"
 	"github.com/zalando-incubator/postgres-operator/pkg/spec"
 	"github.com/zalando-incubator/postgres-operator/pkg/util"
 	"github.com/zalando-incubator/postgres-operator/pkg/util/constants"
@@ -34,7 +37,7 @@ type SecretOauthTokenGetter struct {
 	OAuthTokenSecretName spec.NamespacedName
 }
 
-func NewSecretOauthTokenGetter(kubeClient *k8sutil.KubernetesClient,
+func newSecretOauthTokenGetter(kubeClient *k8sutil.KubernetesClient,
 	OAuthTokenSecretName spec.NamespacedName) *SecretOauthTokenGetter {
 	return &SecretOauthTokenGetter{kubeClient, OAuthTokenSecretName}
 }
@@ -77,7 +80,8 @@ func (c *Cluster) isSystemUsername(username string) bool {
 
 func isValidFlag(flag string) bool {
 	for _, validFlag := range []string{constants.RoleFlagSuperuser, constants.RoleFlagLogin, constants.RoleFlagCreateDB,
-		constants.RoleFlagInherit, constants.RoleFlagReplication, constants.RoleFlagByPassRLS} {
+		constants.RoleFlagInherit, constants.RoleFlagReplication, constants.RoleFlagByPassRLS,
+		constants.RoleFlagCreateRole} {
 		if flag == validFlag || flag == "NO"+validFlag {
 			return true
 		}
@@ -133,21 +137,23 @@ func normalizeUserFlags(userFlags []string) ([]string, error) {
 	return flags, nil
 }
 
+// specPatch produces a JSON of the Kubernetes object specification passed (typically service or
+// statefulset) to use it in a MergePatch.
 func specPatch(spec interface{}) ([]byte, error) {
 	return json.Marshal(struct {
 		Spec interface{} `json:"spec"`
 	}{spec})
 }
 
-func metadataAnnotationsPatch(annotations map[string]string) string {
-	annotationsList := make([]string, 0, len(annotations))
-
-	for name, value := range annotations {
-		annotationsList = append(annotationsList, fmt.Sprintf(`"%s":"%s"`, name, value))
-	}
-	annotationsString := strings.Join(annotationsList, ",")
-	// TODO: perhaps use patchStrategy:action json annotation instead of constructing the patch literally.
-	return fmt.Sprintf(constants.ServiceMetadataAnnotationReplaceFormat, annotationsString)
+// metaAnnotationsPatch produces a JSON of the object metadata that has only the annotation
+// field in order to use it in a MergePatch. Note that we don't patch the complete metadata, since
+// it contains the current revision of the object that could be outdated at the time we patch.
+func metaAnnotationsPatch(annotations map[string]string) ([]byte, error) {
+	var meta metav1.ObjectMeta
+	meta.Annotations = annotations
+	return json.Marshal(struct {
+		ObjMeta interface{} `json:"metadata"`
+	}{&meta})
 }
 
 func (c *Cluster) logPDBChanges(old, new *policybeta1.PodDisruptionBudget, isUpdate bool, reason string) {
@@ -170,7 +176,10 @@ func (c *Cluster) logStatefulSetChanges(old, new *v1beta1.StatefulSet, isUpdate 
 			util.NameFromMeta(old.ObjectMeta),
 		)
 	}
-	c.logger.Debugf("diff\n%s\n", util.PrettyDiff(old.Spec, new.Spec))
+	if !reflect.DeepEqual(old.Annotations, new.Annotations) {
+		c.logger.Debugf("metadata.annotation diff\n%s\n", util.PrettyDiff(old.Annotations, new.Annotations))
+	}
+	c.logger.Debugf("spec diff\n%s\n", util.PrettyDiff(old.Spec, new.Spec))
 
 	if len(reasons) > 0 {
 		for _, reason := range reasons {
@@ -196,17 +205,19 @@ func (c *Cluster) logServiceChanges(role PostgresRole, old, new *v1.Service, isU
 	}
 }
 
-func (c *Cluster) logVolumeChanges(old, new spec.Volume) {
+func (c *Cluster) logVolumeChanges(old, new acidv1.Volume) {
 	c.logger.Infof("volume specification has been changed")
 	c.logger.Debugf("diff\n%s\n", util.PrettyDiff(old, new))
 }
 
-func (c *Cluster) getTeamMembers() ([]string, error) {
-	if c.Spec.TeamID == "" {
+func (c *Cluster) getTeamMembers(teamID string) ([]string, error) {
+
+	if teamID == "" {
 		return nil, fmt.Errorf("no teamId specified")
 	}
+
 	if !c.OpConfig.EnableTeamsAPI {
-		c.logger.Debug("team API is disabled, returning empty list of members")
+		c.logger.Debugf("team API is disabled, returning empty list of members for team %q", teamID)
 		return []string{}, nil
 	}
 
@@ -216,16 +227,16 @@ func (c *Cluster) getTeamMembers() ([]string, error) {
 		return []string{}, nil
 	}
 
-	teamInfo, err := c.teamsAPIClient.TeamInfo(c.Spec.TeamID, token)
+	teamInfo, err := c.teamsAPIClient.TeamInfo(teamID, token)
 	if err != nil {
-		c.logger.Warnf("could not get team info, returning empty list of team members: %v", err)
+		c.logger.Warnf("could not get team info for team %q, returning empty list of team members: %v", teamID, err)
 		return []string{}, nil
 	}
 
 	return teamInfo.Members, nil
 }
 
-func (c *Cluster) waitForPodLabel(podEvents chan spec.PodEvent, role *PostgresRole) (*v1.Pod, error) {
+func (c *Cluster) waitForPodLabel(podEvents chan PodEvent, stopChan chan struct{}, role *PostgresRole) (*v1.Pod, error) {
 	timeout := time.After(c.OpConfig.PodLabelWaitTimeout)
 	for {
 		select {
@@ -241,16 +252,18 @@ func (c *Cluster) waitForPodLabel(podEvents chan spec.PodEvent, role *PostgresRo
 			}
 		case <-timeout:
 			return nil, fmt.Errorf("pod label wait timeout")
+		case <-stopChan:
+			return nil, fmt.Errorf("pod label wait cancelled")
 		}
 	}
 }
 
-func (c *Cluster) waitForPodDeletion(podEvents chan spec.PodEvent) error {
+func (c *Cluster) waitForPodDeletion(podEvents chan PodEvent) error {
 	timeout := time.After(c.OpConfig.PodDeletionWaitTimeout)
 	for {
 		select {
 		case podEvent := <-podEvents:
-			if podEvent.EventType == spec.EventDelete {
+			if podEvent.EventType == PodEventDelete {
 				return nil
 			}
 		case <-timeout:
@@ -278,7 +291,10 @@ func (c *Cluster) waitStatefulsetReady() error {
 		})
 }
 
-func (c *Cluster) waitPodLabelsReady() error {
+func (c *Cluster) _waitPodLabelsReady(anyReplica bool) error {
+	var (
+		podsNumber int
+	)
 	ls := c.labelsSet(false)
 	namespace := c.Namespace
 
@@ -295,33 +311,54 @@ func (c *Cluster) waitPodLabelsReady() error {
 			c.OpConfig.PodRoleLabel: string(Replica),
 		}).String(),
 	}
-	pods, err := c.KubeClient.Pods(namespace).List(listOptions)
-	if err != nil {
-		return err
+	podsNumber = 1
+	if !anyReplica {
+		pods, err := c.KubeClient.Pods(namespace).List(listOptions)
+		if err != nil {
+			return err
+		}
+		podsNumber = len(pods.Items)
+		c.logger.Debugf("Waiting for %d pods to become ready", podsNumber)
+	} else {
+		c.logger.Debugf("Waiting for any replica pod to become ready")
 	}
-	podsNumber := len(pods.Items)
 
-	err = retryutil.Retry(c.OpConfig.ResourceCheckInterval, c.OpConfig.ResourceCheckTimeout,
+	err := retryutil.Retry(c.OpConfig.ResourceCheckInterval, c.OpConfig.ResourceCheckTimeout,
 		func() (bool, error) {
-			masterPods, err2 := c.KubeClient.Pods(namespace).List(masterListOption)
-			if err2 != nil {
-				return false, err2
+			masterCount := 0
+			if !anyReplica {
+				masterPods, err2 := c.KubeClient.Pods(namespace).List(masterListOption)
+				if err2 != nil {
+					return false, err2
+				}
+				if len(masterPods.Items) > 1 {
+					return false, fmt.Errorf("too many masters (%d pods with the master label found)",
+						len(masterPods.Items))
+				}
+				masterCount = len(masterPods.Items)
 			}
 			replicaPods, err2 := c.KubeClient.Pods(namespace).List(replicaListOption)
 			if err2 != nil {
 				return false, err2
 			}
-			if len(masterPods.Items) > 1 {
-				return false, fmt.Errorf("too many masters")
-			}
-			if len(replicaPods.Items) == podsNumber {
+			replicaCount := len(replicaPods.Items)
+			if anyReplica && replicaCount > 0 {
+				c.logger.Debugf("Found %d running replica pods", replicaCount)
 				return true, nil
 			}
 
-			return len(masterPods.Items)+len(replicaPods.Items) == podsNumber, nil
+			return masterCount+replicaCount >= podsNumber, nil
 		})
 
 	return err
+}
+
+func (c *Cluster) waitForAnyReplicaLabelReady() error {
+	return c._waitPodLabelsReady(true)
+}
+
+func (c *Cluster) waitForAllPodsLabelReady() error {
+	return c._waitPodLabelsReady(false)
 }
 
 func (c *Cluster) waitStatefulsetPodsReady() error {
@@ -332,7 +369,7 @@ func (c *Cluster) waitStatefulsetPodsReady() error {
 	}
 
 	// TODO: wait only for master
-	if err := c.waitPodLabelsReady(); err != nil {
+	if err := c.waitForAllPodsLabelReady(); err != nil {
 		return fmt.Errorf("pod labels error: %v", err)
 	}
 
@@ -340,7 +377,7 @@ func (c *Cluster) waitStatefulsetPodsReady() error {
 }
 
 // Returns labels used to create or list k8s objects such as pods
-// For backward compatability, shouldAddExtraLabels must be false
+// For backward compatibility, shouldAddExtraLabels must be false
 // when listing k8s objects. See operator PR #252
 func (c *Cluster) labelsSet(shouldAddExtraLabels bool) labels.Set {
 	lbls := make(map[string]string)
@@ -358,7 +395,7 @@ func (c *Cluster) labelsSet(shouldAddExtraLabels bool) labels.Set {
 }
 
 func (c *Cluster) labelsSelector() *metav1.LabelSelector {
-	return &metav1.LabelSelector{c.labelsSet(false), nil}
+	return &metav1.LabelSelector{MatchLabels: c.labelsSet(false), MatchExpressions: nil}
 }
 
 func (c *Cluster) roleLabelsSet(role PostgresRole) labels.Set {
@@ -392,18 +429,18 @@ func (c *Cluster) credentialSecretNameForCluster(username string, clusterName st
 	return c.OpConfig.SecretNameTemplate.Format(
 		"username", strings.Replace(username, "_", "-", -1),
 		"cluster", clusterName,
-		"tprkind", constants.CRDKind,
-		"tprgroup", constants.CRDGroup)
+		"tprkind", acidv1.PostgresCRDResourceKind,
+		"tprgroup", acidzalando.GroupName)
 }
 
 func masterCandidate(replicas []spec.NamespacedName) spec.NamespacedName {
 	return replicas[rand.Intn(len(replicas))]
 }
 
-func cloneSpec(from *spec.Postgresql) (*spec.Postgresql, error) {
+func cloneSpec(from *acidv1.Postgresql) (*acidv1.Postgresql, error) {
 	var (
 		buf    bytes.Buffer
-		result *spec.Postgresql
+		result *acidv1.Postgresql
 		err    error
 	)
 	enc := gob.NewEncoder(&buf)
@@ -417,13 +454,13 @@ func cloneSpec(from *spec.Postgresql) (*spec.Postgresql, error) {
 	return result, nil
 }
 
-func (c *Cluster) setSpec(newSpec *spec.Postgresql) {
+func (c *Cluster) setSpec(newSpec *acidv1.Postgresql) {
 	c.specMu.Lock()
 	c.Postgresql = *newSpec
 	c.specMu.Unlock()
 }
 
-func (c *Cluster) GetSpec() (*spec.Postgresql, error) {
+func (c *Cluster) GetSpec() (*acidv1.Postgresql, error) {
 	c.specMu.RLock()
 	defer c.specMu.RUnlock()
 	return cloneSpec(&c.Postgresql)

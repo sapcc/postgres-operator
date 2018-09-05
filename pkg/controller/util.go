@@ -3,15 +3,15 @@ package controller
 import (
 	"fmt"
 
+	"k8s.io/api/core/v1"
 	apiextv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/pkg/api/v1"
 
+	acidv1 "github.com/zalando-incubator/postgres-operator/pkg/apis/acid.zalan.do/v1"
 	"github.com/zalando-incubator/postgres-operator/pkg/cluster"
 	"github.com/zalando-incubator/postgres-operator/pkg/spec"
 	"github.com/zalando-incubator/postgres-operator/pkg/util/config"
-	"github.com/zalando-incubator/postgres-operator/pkg/util/constants"
 	"github.com/zalando-incubator/postgres-operator/pkg/util/k8sutil"
 	"gopkg.in/yaml.v2"
 )
@@ -26,6 +26,7 @@ func (c *Controller) makeClusterConfig() cluster.Config {
 		RestConfig:          c.config.RestConfig,
 		OpConfig:            config.Copy(c.opConfig),
 		InfrastructureRoles: infrastructureRoles,
+		PodServiceAccount:   c.PodServiceAccount,
 	}
 }
 
@@ -46,25 +47,7 @@ func (c *Controller) clusterWorkerID(clusterName spec.NamespacedName) uint32 {
 	return c.clusterWorkers[clusterName]
 }
 
-func (c *Controller) createCRD() error {
-	crd := &apiextv1beta1.CustomResourceDefinition{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: constants.CRDResource + "." + constants.CRDGroup,
-		},
-		Spec: apiextv1beta1.CustomResourceDefinitionSpec{
-			Group:   constants.CRDGroup,
-			Version: constants.CRDApiVersion,
-			Names: apiextv1beta1.CustomResourceDefinitionNames{
-				Plural:     constants.CRDResource,
-				Singular:   constants.CRDKind,
-				ShortNames: []string{constants.CRDShort},
-				Kind:       constants.CRDKind,
-				ListKind:   constants.CRDKind + "List",
-			},
-			Scope: apiextv1beta1.NamespaceScoped,
-		},
-	}
-
+func (c *Controller) createOperatorCRD(crd *apiextv1beta1.CustomResourceDefinition) error {
 	if _, err := c.KubeClient.CustomResourceDefinitions().Create(crd); err != nil {
 		if !k8sutil.ResourceAlreadyExists(err) {
 			return fmt.Errorf("could not create customResourceDefinition: %v", err)
@@ -74,7 +57,7 @@ func (c *Controller) createCRD() error {
 		c.logger.Infof("customResourceDefinition %q has been registered", crd.Name)
 	}
 
-	return wait.Poll(c.opConfig.CRD.ReadyWaitInterval, c.opConfig.CRD.ReadyWaitTimeout, func() (bool, error) {
+	return wait.Poll(c.config.CRDReadyWaitInterval, c.config.CRDReadyWaitTimeout, func() (bool, error) {
 		c, err := c.KubeClient.CustomResourceDefinitions().Get(crd.Name, metav1.GetOptions{})
 		if err != nil {
 			return false, err
@@ -97,6 +80,14 @@ func (c *Controller) createCRD() error {
 	})
 }
 
+func (c *Controller) createPostgresCRD() error {
+	return c.createOperatorCRD(acidv1.PostgresCRD())
+}
+
+func (c *Controller) createConfigurationCRD() error {
+	return c.createOperatorCRD(acidv1.ConfigurationCRD())
+}
+
 func readDecodedRole(s string) (*spec.PgUser, error) {
 	var result spec.PgUser
 	if err := yaml.Unmarshal([]byte(s), &result); err != nil {
@@ -105,7 +96,7 @@ func readDecodedRole(s string) (*spec.PgUser, error) {
 	return &result, nil
 }
 
-func (c *Controller) getInfrastructureRoles(rolesSecret *spec.NamespacedName) (result map[string]spec.PgUser, err error) {
+func (c *Controller) getInfrastructureRoles(rolesSecret *spec.NamespacedName) (map[string]spec.PgUser, error) {
 	if *rolesSecret == (spec.NamespacedName{}) {
 		// we don't have infrastructure roles defined, bail out
 		return nil, nil
@@ -120,7 +111,7 @@ func (c *Controller) getInfrastructureRoles(rolesSecret *spec.NamespacedName) (r
 	}
 
 	secretData := infraRolesSecret.Data
-	result = make(map[string]spec.PgUser)
+	result := make(map[string]spec.PgUser)
 Users:
 	// in worst case we would have one line per user
 	for i := 1; i <= len(secretData); i++ {
@@ -162,22 +153,22 @@ Users:
 	if infraRolesMap, err := c.KubeClient.ConfigMaps(rolesSecret.Namespace).Get(rolesSecret.Name, metav1.GetOptions{}); err == nil {
 		// we have a configmap with username - json description, let's read and decode it
 		for role, s := range infraRolesMap.Data {
-			if roleDescr, err := readDecodedRole(s); err != nil {
+			roleDescr, err := readDecodedRole(s)
+			if err != nil {
 				return nil, fmt.Errorf("could not decode role description: %v", err)
-			} else {
-				// check if we have a a password in a configmap
-				c.logger.Debugf("found role description for role %q: %+v", role, roleDescr)
-				if passwd, ok := secretData[role]; ok {
-					roleDescr.Password = string(passwd)
-					delete(secretData, role)
-				} else {
-					c.logger.Warningf("infrastructure role %q has no password defined and is ignored", role)
-					continue
-				}
-				roleDescr.Name = role
-				roleDescr.Origin = spec.RoleOriginInfrastructure
-				result[role] = *roleDescr
 			}
+			// check if we have a a password in a configmap
+			c.logger.Debugf("found role description for role %q: %+v", role, roleDescr)
+			if passwd, ok := secretData[role]; ok {
+				roleDescr.Password = string(passwd)
+				delete(secretData, role)
+			} else {
+				c.logger.Warningf("infrastructure role %q has no password defined and is ignored", role)
+				continue
+			}
+			roleDescr.Name = role
+			roleDescr.Origin = spec.RoleOriginInfrastructure
+			result[role] = *roleDescr
 		}
 	}
 

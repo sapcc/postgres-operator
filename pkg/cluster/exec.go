@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"strings"
 
+	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	remotecommandconsts "k8s.io/apimachinery/pkg/util/remotecommand"
 	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/pkg/api/v1"
 	"k8s.io/client-go/tools/remotecommand"
 
 	"github.com/zalando-incubator/postgres-operator/pkg/spec"
+	"github.com/zalando-incubator/postgres-operator/pkg/util/constants"
 )
 
 //ExecCommand executes arbitrary command inside the pod
@@ -28,8 +28,17 @@ func (c *Cluster) ExecCommand(podName *spec.NamespacedName, command ...string) (
 		return "", fmt.Errorf("could not get pod info: %v", err)
 	}
 
-	if len(pod.Spec.Containers) != 1 {
-		return "", fmt.Errorf("could not determine which container to use")
+	// iterate through all containers looking for the one running PostgreSQL.
+	targetContainer := -1
+	for i, cr := range pod.Spec.Containers {
+		if cr.Name == constants.PostgresContainerName {
+			targetContainer = i
+			break
+		}
+	}
+
+	if targetContainer < 0 {
+		return "", fmt.Errorf("could not find %s container to exec to", constants.PostgresContainerName)
 	}
 
 	req := c.KubeClient.RESTClient.Post().
@@ -38,21 +47,21 @@ func (c *Cluster) ExecCommand(podName *spec.NamespacedName, command ...string) (
 		Namespace(podName.Namespace).
 		SubResource("exec")
 	req.VersionedParams(&v1.PodExecOptions{
-		Container: pod.Spec.Containers[0].Name,
+		Container: pod.Spec.Containers[targetContainer].Name,
 		Command:   command,
 		Stdout:    true,
 		Stderr:    true,
 	}, scheme.ParameterCodec)
 
-	exec, err := remotecommand.NewExecutor(c.RestConfig, "POST", req.URL())
+	exec, err := remotecommand.NewSPDYExecutor(c.RestConfig, "POST", req.URL())
 	if err != nil {
 		return "", fmt.Errorf("failed to init executor: %v", err)
 	}
 
 	err = exec.Stream(remotecommand.StreamOptions{
-		SupportedProtocols: remotecommandconsts.SupportedStreamingProtocols,
-		Stdout:             &execOut,
-		Stderr:             &execErr,
+		Stdout: &execOut,
+		Stderr: &execErr,
+		Tty:    false,
 	})
 
 	if err != nil {

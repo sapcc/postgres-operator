@@ -134,7 +134,7 @@ function start_operator(){
 
     # the order of resource initialization is significant
     local file
-    for file  in "configmap.yaml" "serviceaccount.yaml"
+    for file  in "configmap.yaml" "operator-service-account-rbac.yaml"
     do
         retry "kubectl  create -f manifests/\"$file\"" "attempt to create $file resource"
     done
@@ -149,7 +149,7 @@ function start_operator(){
     local -r cmd="kubectl get crd | grep --quiet 'postgresqls.acid.zalan.do'"
     retry "$cmd" "$msg "
 
-    kubectl create -f manifests/complete-postgres-manifest.yaml
+    kubectl create -f manifests/minimal-postgres-manifest.yaml
 }
 
 

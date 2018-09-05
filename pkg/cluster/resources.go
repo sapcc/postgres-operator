@@ -5,16 +5,20 @@ import (
 	"strconv"
 	"strings"
 
+	"k8s.io/api/apps/v1beta1"
+	"k8s.io/api/core/v1"
+	policybeta1 "k8s.io/api/policy/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/pkg/api/v1"
-	"k8s.io/client-go/pkg/apis/apps/v1beta1"
-	policybeta1 "k8s.io/client-go/pkg/apis/policy/v1beta1"
 
 	"github.com/zalando-incubator/postgres-operator/pkg/util"
 	"github.com/zalando-incubator/postgres-operator/pkg/util/constants"
 	"github.com/zalando-incubator/postgres-operator/pkg/util/k8sutil"
 	"github.com/zalando-incubator/postgres-operator/pkg/util/retryutil"
+)
+
+const (
+	rollingUpdateStatefulsetAnnotationKey = "zalando-postgres-operator-rolling-update-required"
 )
 
 func (c *Cluster) listResources() error {
@@ -121,13 +125,102 @@ func (c *Cluster) preScaleDown(newStatefulSet *v1beta1.StatefulSet) error {
 		return fmt.Errorf("pod %q does not belong to cluster", podName)
 	}
 
-	if err := c.patroni.Failover(&masterPod[0], masterCandidatePod.Name); err != nil {
+	if err := c.patroni.Switchover(&masterPod[0], masterCandidatePod.Name); err != nil {
 		return fmt.Errorf("could not failover: %v", err)
 	}
 
 	return nil
 }
 
+// setRollingUpdateFlagForStatefulSet sets the indicator or the rolling upgrade requirement
+// in the StatefulSet annotation.
+func (c *Cluster) setRollingUpdateFlagForStatefulSet(sset *v1beta1.StatefulSet, val bool) {
+	anno := sset.GetAnnotations()
+	c.logger.Debugf("rolling upgrade flag has been set to %t", val)
+	if anno == nil {
+		anno = make(map[string]string)
+	}
+	anno[rollingUpdateStatefulsetAnnotationKey] = strconv.FormatBool(val)
+	sset.SetAnnotations(anno)
+}
+
+// applyRollingUpdateFlagforStatefulSet sets the rolling update flag for the cluster's StatefulSet
+// and applies that setting to the actual running cluster.
+func (c *Cluster) applyRollingUpdateFlagforStatefulSet(val bool) error {
+	c.setRollingUpdateFlagForStatefulSet(c.Statefulset, val)
+	sset, err := c.updateStatefulSetAnnotations(c.Statefulset.GetAnnotations())
+	if err != nil {
+		return err
+	}
+	c.Statefulset = sset
+	return nil
+}
+
+// getRollingUpdateFlagFromStatefulSet returns the value of the rollingUpdate flag from the passed
+// StatefulSet, reverting to the default value in case of errors
+func (c *Cluster) getRollingUpdateFlagFromStatefulSet(sset *v1beta1.StatefulSet, defaultValue bool) (flag bool) {
+	anno := sset.GetAnnotations()
+	flag = defaultValue
+
+	stringFlag, exists := anno[rollingUpdateStatefulsetAnnotationKey]
+	if exists {
+		var err error
+		if flag, err = strconv.ParseBool(stringFlag); err != nil {
+			c.logger.Warnf("error when parsing %q annotation for the statefulset %q: expected boolean value, got %q\n",
+				rollingUpdateStatefulsetAnnotationKey,
+				types.NamespacedName{Namespace: sset.Namespace, Name: sset.Name},
+				stringFlag)
+			flag = defaultValue
+		}
+	}
+	return flag
+}
+
+// mergeRollingUpdateFlagUsingCache return the value of the rollingUpdate flag from the passed
+// statefulset, however, the value can be cleared if there is a cached flag in the cluster that
+// is set to false (the disrepancy could be a result of a failed StatefulSet update).s
+func (c *Cluster) mergeRollingUpdateFlagUsingCache(runningStatefulSet *v1beta1.StatefulSet) bool {
+	var (
+		cachedStatefulsetExists, clearRollingUpdateFromCache, podsRollingUpdateRequired bool
+	)
+
+	if c.Statefulset != nil {
+		// if we reset the rolling update flag in the statefulset structure in memory but didn't manage to update
+		// the actual object in Kubernetes for some reason we want to avoid doing an unnecessary update by relying
+		// on the 'cached' in-memory flag.
+		cachedStatefulsetExists = true
+		clearRollingUpdateFromCache = !c.getRollingUpdateFlagFromStatefulSet(c.Statefulset, true)
+		c.logger.Debugf("cached StatefulSet value exists, rollingUpdate flag is %t", clearRollingUpdateFromCache)
+	}
+
+	if podsRollingUpdateRequired = c.getRollingUpdateFlagFromStatefulSet(runningStatefulSet, false); podsRollingUpdateRequired {
+		if cachedStatefulsetExists && clearRollingUpdateFromCache {
+			c.logger.Infof("clearing the rolling update flag based on the cached information")
+			podsRollingUpdateRequired = false
+		} else {
+			c.logger.Infof("found a statefulset with an unfinished pods rolling update")
+
+		}
+	}
+	return podsRollingUpdateRequired
+}
+
+func (c *Cluster) updateStatefulSetAnnotations(annotations map[string]string) (*v1beta1.StatefulSet, error) {
+	c.logger.Debugf("updating statefulset annotations")
+	patchData, err := metaAnnotationsPatch(annotations)
+	if err != nil {
+		return nil, fmt.Errorf("could not form patch for the statefulset metadata: %v", err)
+	}
+	result, err := c.KubeClient.StatefulSets(c.Statefulset.Namespace).Patch(
+		c.Statefulset.Name,
+		types.MergePatchType,
+		[]byte(patchData), "")
+	if err != nil {
+		return nil, fmt.Errorf("could not patch statefulset annotations %q: %v", patchData, err)
+	}
+	return result, nil
+
+}
 func (c *Cluster) updateStatefulSet(newStatefulSet *v1beta1.StatefulSet) error {
 	c.setProcessName("updating statefulset")
 	if c.Statefulset == nil {
@@ -153,8 +246,16 @@ func (c *Cluster) updateStatefulSet(newStatefulSet *v1beta1.StatefulSet) error {
 		types.MergePatchType,
 		patchData, "")
 	if err != nil {
-		return fmt.Errorf("could not patch statefulset %q: %v", statefulSetName, err)
+		return fmt.Errorf("could not patch statefulset spec %q: %v", statefulSetName, err)
 	}
+
+	if newStatefulSet.Annotations != nil {
+		statefulSet, err = c.updateStatefulSetAnnotations(newStatefulSet.Annotations)
+		if err != nil {
+			return err
+		}
+	}
+
 	c.Statefulset = statefulSet
 
 	return nil
@@ -171,10 +272,10 @@ func (c *Cluster) replaceStatefulSet(newStatefulSet *v1beta1.StatefulSet) error 
 	c.logger.Debugf("replacing statefulset")
 
 	// Delete the current statefulset without deleting the pods
-	orphanDepencies := true
+	deletePropagationPolicy := metav1.DeletePropagationOrphan
 	oldStatefulset := c.Statefulset
 
-	options := metav1.DeleteOptions{OrphanDependents: &orphanDepencies}
+	options := metav1.DeleteOptions{PropagationPolicy: &deletePropagationPolicy}
 	if err := c.KubeClient.StatefulSets(oldStatefulset.Namespace).Delete(oldStatefulset.Name, &options); err != nil {
 		return fmt.Errorf("could not delete statefulset %q: %v", statefulSetName, err)
 	}
@@ -298,16 +399,19 @@ func (c *Cluster) updateService(role PostgresRole, newService *v1.Service) error
 		return nil
 	}
 
+	// update the service annotation in order to propagate ELB notation.
 	if len(newService.ObjectMeta.Annotations) > 0 {
-		annotationsPatchData := metadataAnnotationsPatch(newService.ObjectMeta.Annotations)
+		if annotationsPatchData, err := metaAnnotationsPatch(newService.ObjectMeta.Annotations); err == nil {
+			_, err = c.KubeClient.Services(serviceName.Namespace).Patch(
+				serviceName.Name,
+				types.MergePatchType,
+				[]byte(annotationsPatchData), "")
 
-		_, err := c.KubeClient.Services(serviceName.Namespace).Patch(
-			serviceName.Name,
-			types.StrategicMergePatchType,
-			[]byte(annotationsPatchData), "")
-
-		if err != nil {
-			return fmt.Errorf("could not replace annotations for the service %q: %v", serviceName, err)
+			if err != nil {
+				return fmt.Errorf("could not replace annotations for the service %q: %v", serviceName, err)
+			}
+		} else {
+			return fmt.Errorf("could not form patch for the service metadata: %v", err)
 		}
 	}
 
@@ -316,6 +420,7 @@ func (c *Cluster) updateService(role PostgresRole, newService *v1.Service) error
 		return fmt.Errorf("could not form patch for the service %q: %v", serviceName, err)
 	}
 
+	// update the service spec
 	svc, err := c.KubeClient.Services(serviceName.Namespace).Patch(
 		serviceName.Name,
 		types.MergePatchType,
@@ -344,10 +449,16 @@ func (c *Cluster) deleteService(role PostgresRole) error {
 }
 
 func (c *Cluster) createEndpoint(role PostgresRole) (*v1.Endpoints, error) {
+	var (
+		subsets []v1.EndpointSubset
+	)
 	c.setProcessName("creating endpoint")
-	subsets := make([]v1.EndpointSubset, 0)
-	if role == Master {
-		//TODO: set subsets to the master
+	if !c.isNewCluster() {
+		subsets = c.generateEndpointSubsets(role)
+	} else {
+		// Patroni will populate the master endpoint for the new cluster
+		// The replica endpoint will be filled-in by the service selector.
+		subsets = make([]v1.EndpointSubset, 0)
 	}
 	endpointsSpec := c.generateEndpoint(role, subsets)
 
@@ -359,6 +470,34 @@ func (c *Cluster) createEndpoint(role PostgresRole) (*v1.Endpoints, error) {
 	c.Endpoints[role] = endpoints
 
 	return endpoints, nil
+}
+
+func (c *Cluster) generateEndpointSubsets(role PostgresRole) []v1.EndpointSubset {
+	result := make([]v1.EndpointSubset, 0)
+	pods, err := c.getRolePods(role)
+	if err != nil {
+		if role == Master {
+			c.logger.Warningf("could not obtain the address for %s pod: %v", role, err)
+		} else {
+			c.logger.Warningf("could not obtain the addresses for %s pods: %v", role, err)
+		}
+		return result
+	}
+
+	endPointAddresses := make([]v1.EndpointAddress, 0)
+	for _, pod := range pods {
+		endPointAddresses = append(endPointAddresses, v1.EndpointAddress{IP: pod.Status.PodIP})
+	}
+	if len(endPointAddresses) > 0 {
+		result = append(result, v1.EndpointSubset{
+			Addresses: endPointAddresses,
+			Ports:     []v1.EndpointPort{{Name: "postgresql", Port: 5432, Protocol: "TCP"}},
+		})
+	} else if role == Master {
+		c.logger.Warningf("master is not running, generated master endpoint does not contain any addresses")
+	}
+
+	return result
 }
 
 func (c *Cluster) createPodDisruptionBudget() (*policybeta1.PodDisruptionBudget, error) {
@@ -493,28 +632,4 @@ func (c *Cluster) GetStatefulSet() *v1beta1.StatefulSet {
 // GetPodDisruptionBudget returns cluster's kubernetes PodDisruptionBudget
 func (c *Cluster) GetPodDisruptionBudget() *policybeta1.PodDisruptionBudget {
 	return c.PodDisruptionBudget
-}
-
-func (c *Cluster) createDatabases() error {
-	c.setProcessName("creating databases")
-
-	if len(c.Spec.Databases) == 0 {
-		return nil
-	}
-
-	if err := c.initDbConn(); err != nil {
-		return fmt.Errorf("could not init database connection")
-	}
-	defer func() {
-		if err := c.closeDbConn(); err != nil {
-			c.logger.Errorf("could not close database connection: %v", err)
-		}
-	}()
-
-	for datname, owner := range c.Spec.Databases {
-		if err := c.executeCreateDatabase(datname, owner); err != nil {
-			return err
-		}
-	}
-	return nil
 }
