@@ -3,13 +3,11 @@ package main
 import (
 	"flag"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
 
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/zalando-incubator/postgres-operator/pkg/controller"
 	"github.com/zalando-incubator/postgres-operator/pkg/spec"
 	"github.com/zalando-incubator/postgres-operator/pkg/util/k8sutil"
@@ -52,15 +50,6 @@ func main() {
 
 	log.SetOutput(os.Stdout)
 	log.Printf("Spilo operator %s\n", version)
-
-	http.Handle("/metrics", promhttp.Handler())
-	go func() {
-		log.Printf("Metrics listening on %s", *listenMetricsAddress)
-		err = http.ListenAndServe(*listenMetricsAddress, nil)
-		if err != nil {
-			log.Fatal(err)
-		}
-	}()
 
 	sigs := make(chan os.Signal, 1)
 	stop := make(chan struct{})

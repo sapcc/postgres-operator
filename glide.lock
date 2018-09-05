@@ -1,8 +1,8 @@
-hash: 6c3710c0cb2ef1ebd7442ee35013a8ad630100d69d4332b5bd837957e3ac4849
-updated: 2018-09-04T14:45:43.419231+02:00
+hash: aa008e00a8cf34fa59a081dd67644319f9d5d077bf4de81aa4a25a2d5b8781a1
+updated: 2018-09-05T11:56:42.578944+02:00
 imports:
 - name: github.com/aws/aws-sdk-go
-  version: 04abd557eeaab3cfdded45467eea00fc03db9cb9
+  version: 3e9c4ca8d7fc8d22f0d21d50120186f73d2fdf1a
   subpackages:
   - aws
   - aws/awserr
@@ -33,10 +33,6 @@ imports:
   - private/protocol/xml/xmlutil
   - service/ec2
   - service/sts
-- name: github.com/beorn7/perks
-  version: 3ac7bf7a47d159a033b107610db8a1b6575507a4
-  subpackages:
-  - quantile
 - name: github.com/davecgh/go-spew
   version: 5215b55f46b2b919f50a1df0eaa5886afe4e3b3d
   subpackages:
@@ -59,7 +55,7 @@ imports:
 - name: github.com/ghodss/yaml
   version: 73d445a93680fa1a78ae23a5839bad48f32ba1ee
 - name: github.com/go-ini/ini
-  version: 5cf292cae48347c2490ac1a58fe36735fb78df7e
+  version: c787282c39ac1fc618827141a1f762240def08a3
 - name: github.com/go-openapi/analysis
   version: b44dc874b601d9e4e2f6e19140e794ba24bead3b
 - name: github.com/go-openapi/jsonpointer
@@ -79,11 +75,6 @@ imports:
   - sortkeys
 - name: github.com/golang/glog
   version: 44145f04b68cf362d9c4df2182967c2275eaefed
-- name: github.com/golang/protobuf
-  version: aa810b61a9c79d51363740d207bb46cf8e620ed5
-  subpackages:
-  - proto
-  - protoc-gen-go
 - name: github.com/google/gofuzz
   version: 44d81051d367757e1c7c6a5a86423ece9afcf63c
 - name: github.com/hashicorp/golang-lru
@@ -95,13 +86,13 @@ imports:
 - name: github.com/imdario/mergo
   version: 6633656539c1639d9d78127b7d47c622b5d7b6dc
 - name: github.com/jmespath/go-jmespath
-  version: c2b33e8439af944379acbdd9c3a5fe0bc44bd8a5
+  version: bd40a432e4c76585ef6b72d3fd96fb9b6dc7b68d
 - name: github.com/juju/ratelimit
   version: 5b9ff866471762aa2ab2dced63c9fb6f53921342
 - name: github.com/kr/text
-  version: e2ffdb16a802fe2bb95e2e35ff34f0e53aeef34f
+  version: 7cafcd837844e784b526369c9bce262804aebc60
 - name: github.com/lib/pq
-  version: 4ded0e9383f75c197b3a2aaa6d590ac52df6fd79
+  version: b77235e3890a962fe8a6f8c4c7198679ca7814e7
   subpackages:
   - oid
 - name: github.com/mailru/easyjson
@@ -110,32 +101,8 @@ imports:
   - buffer
   - jlexer
   - jwriter
-- name: github.com/matttproud/golang_protobuf_extensions
-  version: c12348ce28de40eed0136aa2b644d0ee0650e56c
-  subpackages:
-  - pbutil
 - name: github.com/motomux/pretty
   version: b2aad2c9a95d14eb978f29baa6e3a5c3c20eef30
-- name: github.com/prometheus/client_golang
-  version: 967789050ba94deca04a5e84cce8ad472ce313c1
-  subpackages:
-  - prometheus
-  - prometheus/promauto
-  - prometheus/promhttp
-- name: github.com/prometheus/client_model
-  version: 5c3871d89910bfb32f5fcab2aa4b9ec68e65a99f
-  subpackages:
-  - go
-- name: github.com/prometheus/common
-  version: 13ba4ddd0caa9c28ca7b7bffe1dfa9ed8d5ef207
-  subpackages:
-  - expfmt
-  - internal/bitbucket.org/ww/goautoneg
-  - model
-- name: github.com/prometheus/procfs
-  version: 65c1f6f8f0fc1e2185eb9863a3bc751496404259
-  subpackages:
-  - xfs
 - name: github.com/PuerkitoBio/purell
   version: 8a290539e2e8629dbc4e6bad948158f790ec31f4
 - name: github.com/PuerkitoBio/urlesc
@@ -149,7 +116,7 @@ imports:
   subpackages:
   - codec
 - name: golang.org/x/crypto
-  version: 182538f80094b6a8efaade63a8fd8e0d9d5843dd
+  version: 9419663f5a44be8b34ca85f08abc5fe1be11f8a3
   subpackages:
   - ssh/terminal
 - name: golang.org/x/net
@@ -180,9 +147,9 @@ imports:
 - name: gopkg.in/inf.v0
   version: 3887ee99ecf07df5b447e9b00d9c0b2adaa9f3e4
 - name: gopkg.in/yaml.v2
-  version: 5420a8b6744d3b0345ab293f6fcba19c978f1183
+  version: 53feefa2559fb8dfa8d81baad31be332c97d6c77
 - name: k8s.io/apiextensions-apiserver
-  version: 9641638c684b8e8120841315690e5c13ae9dd611
+  version: fcd622fe88a4a6efcb5aea9e94ee87324ac1b036
   subpackages:
   - pkg/apis/apiextensions
   - pkg/apis/apiextensions/v1beta1
