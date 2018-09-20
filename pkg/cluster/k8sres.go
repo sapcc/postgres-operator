@@ -3,7 +3,9 @@ package cluster
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"sort"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 
@@ -269,10 +271,13 @@ func nodeAffinity(nodeReadinessLabel map[string]string) *v1.Affinity {
 		return nil
 	}
 	for k, v := range nodeReadinessLabel {
+		v = strings.Trim(v, "'")
+		v = strings.TrimSpace(v)
+		va := strings.Split(v, "/")
 		matchExpressions = append(matchExpressions, v1.NodeSelectorRequirement{
 			Key:      k,
 			Operator: v1.NodeSelectorOpIn,
-			Values:   []string{v},
+			Values:   va,
 		})
 	}
 
@@ -403,6 +408,7 @@ func generatePodTemplate(
 	podServiceAccountName string,
 	kubeIAMRole string,
 	priorityClassName string,
+	prometheusAnnotations map[string]string,
 ) (*v1.PodTemplateSpec, error) {
 
 	terminateGracePeriodSeconds := terminateGracePeriod
@@ -435,11 +441,18 @@ func generatePodTemplate(
 		template.Annotations = map[string]string{constants.KubeIAmAnnotation: kubeIAMRole}
 	}
 
+	if len(prometheusAnnotations) != 0 {
+		template.Annotations["prometheus.io/scrape"] = "true"
+		for k, v := range prometheusAnnotations {
+			template.Annotations[k] = v
+		}
+	}
+
 	return &template, nil
 }
 
 // generatePodEnvVars generates environment variables for the Spilo Pod
-func (c *Cluster) generateSpiloPodEnvVars(uid types.UID, spiloConfiguration string, cloneDescription *acidv1.CloneDescription, customPodEnvVarsList []v1.EnvVar) []v1.EnvVar {
+func (c *Cluster) generateSpiloPodEnvVars(uid types.UID, spiloConfiguration string, cloneDescription *acidv1.CloneDescription, customPodEnvVarsList []v1.EnvVar, waleBackupParameters *acidv1.WaleBackup) []v1.EnvVar {
 	envVars := []v1.EnvVar{
 		{
 			Name:  "SCOPE",
@@ -524,7 +537,13 @@ func (c *Cluster) generateSpiloPodEnvVars(uid types.UID, spiloConfiguration stri
 	}
 
 	if cloneDescription.ClusterName != "" {
-		envVars = append(envVars, c.generateCloneEnvironment(cloneDescription)...)
+		envVars = append(envVars, c.generateCloneEnvironment(cloneDescription, waleBackupParameters)...)
+	}
+
+	if waleBackupParameters.S3Bucket != "" {
+		envVars = append(envVars, v1.EnvVar{Name: "WAL_BUCKET_SCOPE_SUFFIX", Value: getBucketScopeSuffix(string(uid))})
+		envVars = append(envVars, v1.EnvVar{Name: "WAL_BUCKET_SCOPE_PREFIX", Value: ""})
+		envVars = append(envVars, c.generateWaleBackupEnvironment(waleBackupParameters)...)
 	}
 
 	if len(customPodEnvVarsList) > 0 {
@@ -666,7 +685,7 @@ func (c *Cluster) generateStatefulSet(spec *acidv1.PostgresSpec) (*v1beta1.State
 
 	// generate environment variables for the spilo container
 	spiloEnvVars := deduplicateEnvVars(
-		c.generateSpiloPodEnvVars(c.Postgresql.GetUID(), spiloConfiguration, &spec.Clone, customPodEnvVarsList),
+		c.generateSpiloPodEnvVars(c.Postgresql.GetUID(), spiloConfiguration, &spec.Clone, customPodEnvVarsList, &spec.WaleBackup),
 		c.containerName(), c.logger)
 
 	// pickup the docker image for the spilo container
@@ -717,7 +736,8 @@ func (c *Cluster) generateStatefulSet(spec *acidv1.PostgresSpec) (*v1beta1.State
 		int64(c.OpConfig.PodTerminateGracePeriod.Seconds()),
 		c.OpConfig.PodServiceAccountName,
 		c.OpConfig.KubeIAMRole,
-		effectivePodPriorityClassName); err != nil {
+		effectivePodPriorityClassName,
+		c.Spec.PrometheusAnnotations); err != nil {
 		return nil, fmt.Errorf("could not generate pod template: %v", err)
 	}
 
@@ -835,9 +855,6 @@ func generatePersistentVolumeClaimTemplate(volumeSize, volumeStorageClass string
 		// TODO: remove the old annotation, switching completely to the StorageClassName field.
 		metadata.Annotations = map[string]string{"volume.beta.kubernetes.io/storage-class": volumeStorageClass}
 		storageClassName = &volumeStorageClass
-	} else {
-		metadata.Annotations = map[string]string{"volume.alpha.kubernetes.io/storage-class": "default"}
-		storageClassName = nil
 	}
 
 	quantity, err := resource.ParseQuantity(volumeSize)
@@ -848,7 +865,7 @@ func generatePersistentVolumeClaimTemplate(volumeSize, volumeStorageClass string
 	volumeClaim := &v1.PersistentVolumeClaim{
 		ObjectMeta: metadata,
 		Spec: v1.PersistentVolumeClaimSpec{
-			AccessModes: []v1.PersistentVolumeAccessMode{v1.ReadWriteOnce},
+			AccessModes: []v1.PersistentVolumeAccessMode{v1.ReadWriteMany},
 			Resources: v1.ResourceRequirements{
 				Requests: v1.ResourceList{
 					v1.ResourceStorage: quantity,
@@ -859,6 +876,76 @@ func generatePersistentVolumeClaimTemplate(volumeSize, volumeStorageClass string
 	}
 
 	return volumeClaim, nil
+}
+
+func (c *Cluster) generatePersistentVolume(instance int, spec *acidv1.PostgresSpec) (*v1.PersistentVolume, error) {
+	storage, err := resource.ParseQuantity(spec.Volume.Size)
+	lbls := make(map[string]string)
+	lbls["storage-tier"] = "local"
+
+	if err != nil {
+		return nil, fmt.Errorf("could not parse storage quantity: %v", err)
+	}
+	pv := &v1.PersistentVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   fmt.Sprintf("%s-local-pv-volume-%d", spec.TeamID, instance),
+			Labels: lbls,
+		},
+		Spec: v1.PersistentVolumeSpec{
+			Capacity: v1.ResourceList{
+				v1.ResourceStorage: storage,
+			},
+			PersistentVolumeReclaimPolicy: v1.PersistentVolumeReclaimRecycle,
+			StorageClassName:              "local",
+			AccessModes:                   []v1.PersistentVolumeAccessMode{v1.ReadWriteMany},
+			PersistentVolumeSource: v1.PersistentVolumeSource{
+				HostPath: &v1.HostPathVolumeSource{
+					Path: "/mnt/postgres_cluster/" + spec.TeamID + "-" + spec.ClusterName,
+				},
+			},
+		},
+	}
+
+	return pv, nil
+}
+
+func (c *Cluster) generatePersistentVolumeClaim(local bool, spec *acidv1.PostgresSpec, instanceNumber int, pvInstance int) (*v1.PersistentVolumeClaim, error) {
+	name := fmt.Sprintf("pgdata-%s-%s-%d", spec.TeamID, spec.ClusterName, instanceNumber)
+	quantity, err := resource.ParseQuantity(spec.Volume.Size)
+	storageClassName := ""
+	volumeName := ""
+	if err != nil {
+		return nil, fmt.Errorf("could not parse volume size: %v", err)
+	}
+	lbls := make(map[string]string)
+
+	if local {
+		lbls["storage-tier"] = "local"
+		storageClassName = "local"
+		volumeName = fmt.Sprintf("%s-local-pv-volume-%d", spec.TeamID, pvInstance)
+	}
+
+	pvc := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: c.Namespace,
+			Labels:    c.labelsSet(false),
+		},
+		Spec: v1.PersistentVolumeClaimSpec{
+			Selector: &metav1.LabelSelector{
+				MatchLabels: lbls,
+			},
+			StorageClassName: &storageClassName,
+			VolumeName:       volumeName,
+			AccessModes:      []v1.PersistentVolumeAccessMode{v1.ReadWriteMany},
+			Resources: v1.ResourceRequirements{
+				Requests: v1.ResourceList{
+					v1.ResourceStorage: quantity,
+				},
+			},
+		},
+	}
+	return pvc, nil
 }
 
 func (c *Cluster) generateUserSecrets() map[string]*v1.Secret {
@@ -1007,7 +1094,20 @@ func (c *Cluster) generateEndpoint(role PostgresRole, subsets []v1.EndpointSubse
 	return endpoints
 }
 
-func (c *Cluster) generateCloneEnvironment(description *acidv1.CloneDescription) []v1.EnvVar {
+func (c *Cluster) generateWaleBackupEnvironment(waleParams *acidv1.WaleBackup) []v1.EnvVar {
+	result := make([]v1.EnvVar, 0)
+
+	val := reflect.ValueOf(*waleParams)
+	t := val.Type()
+	for i := 0; i < t.NumField(); i++ {
+		tagName := t.Field(i).Tag.Get("json")
+		fieldValue := val.Field(i).String()
+		result = append(result, v1.EnvVar{Name: tagName, Value: fieldValue})
+	}
+	return result
+}
+
+func (c *Cluster) generateCloneEnvironment(description *acidv1.CloneDescription, waleParams *acidv1.WaleBackup) []v1.EnvVar {
 	result := make([]v1.EnvVar, 0)
 
 	if description.ClusterName == "" {
@@ -1039,8 +1139,12 @@ func (c *Cluster) generateCloneEnvironment(description *acidv1.CloneDescription)
 			})
 	} else {
 		// cloning with S3, find out the bucket to clone
+		if waleParams.S3Bucket != "" {
+			result = append(result, v1.EnvVar{Name: "CLONE_WAL_S3_BUCKET", Value: waleParams.S3Bucket})
+		} else {
+			result = append(result, v1.EnvVar{Name: "CLONE_WAL_S3_BUCKET", Value: c.OpConfig.WALES3Bucket})
+		}
 		result = append(result, v1.EnvVar{Name: "CLONE_METHOD", Value: "CLONE_WITH_WALE"})
-		result = append(result, v1.EnvVar{Name: "CLONE_WAL_S3_BUCKET", Value: c.OpConfig.WALES3Bucket})
 		result = append(result, v1.EnvVar{Name: "CLONE_TARGET_TIME", Value: description.EndTimestamp})
 		result = append(result, v1.EnvVar{Name: "CLONE_WAL_BUCKET_SCOPE_SUFFIX", Value: getBucketScopeSuffix(description.UID)})
 		result = append(result, v1.EnvVar{Name: "CLONE_WAL_BUCKET_SCOPE_PREFIX", Value: ""})

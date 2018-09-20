@@ -56,6 +56,11 @@ var mapContaintsTest = []struct {
 	{map[string]string{}, map[string]string{}, true},
 	{map[string]string{"3": "c", "4": "c"}, map[string]string{"1": "a", "2": "b", "3": "c"}, false},
 	{map[string]string{"3": "c", "4": "c"}, map[string]string{}, true},
+
+	{map[string]string{"1": "a", "2": "b"}, map[string]string{"1": "a", "2": "b,c"}, true},
+	{map[string]string{"1": "a", "2": "c"}, map[string]string{"1": "a", "2": "b,c"}, true},
+	{map[string]string{"1": "a", "2": "g"}, map[string]string{"1": "a", "2": "b,c"}, false},
+	{map[string]string{"1": "b", "2": "c"}, map[string]string{"1": "a", "2": "b,c"}, false},
 }
 
 var substringMatch = []struct {

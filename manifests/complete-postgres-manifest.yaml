@@ -7,6 +7,10 @@ spec:
   teamId: "ACID"
   volume:
     size: 5Gi
+  use_local_storage: true
+  prometheus_annotations:
+    prometheus.io/port: "9187"
+    prometheus.io/port_1: "9200"
   numberOfInstances: 2
   users: #Application/Robot users
     zalando:
@@ -18,6 +22,12 @@ spec:
   - 127.0.0.1/32
   databases:
     foo: zalando
+  wale_backup:
+    AWS_ACCESS_KEY_ID: key
+    AWS_REGION: qa-de-1
+    AWS_SECRET_ACCESS_KEY: secret
+    BACKUP_SCHEDULE: '* * * * *'
+    WAL_S3_BUCKET: db-backup-pgcluster
 #Expert section
   postgresql:
     version: "10"

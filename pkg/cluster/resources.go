@@ -334,6 +334,28 @@ func (c *Cluster) deleteStatefulSet() error {
 	return nil
 }
 
+func (c *Cluster) createPersistentVolume(instance int) (*v1.PersistentVolume, error) {
+	c.setProcessName("creating pv")
+	pvSpec, err := c.generatePersistentVolume(instance, &c.Spec)
+	pv, err := c.KubeClient.PersistentVolumes().Create(pvSpec)
+	if err != nil {
+		return nil, err
+	}
+
+	return pv, nil
+}
+
+func (c *Cluster) createPersistentVolumeClaim(useLocalPV bool, instance int, pvInstance int) (*v1.PersistentVolumeClaim, error) {
+	c.setProcessName("creating pvc")
+	pvcSpec, err := c.generatePersistentVolumeClaim(useLocalPV, &c.Spec, instance, pvInstance)
+	pvc, err := c.KubeClient.PersistentVolumeClaims(pvcSpec.Namespace).Create(pvcSpec)
+	if err != nil {
+		return nil, err
+	}
+
+	return pvc, nil
+}
+
 func (c *Cluster) createService(role PostgresRole) (*v1.Service, error) {
 	c.setProcessName("creating %v service", role)
 
@@ -532,6 +554,17 @@ func (c *Cluster) updatePodDisruptionBudget(pdb *policybeta1.PodDisruptionBudget
 	c.PodDisruptionBudget = newPdb
 
 	return nil
+}
+
+func (c *Cluster) deleteLocalPV() {
+	c.logger.Debug("deleting local pvs")
+	for _, pv := range c.LocalPersistentVolumes {
+		c.logger.Debug("deleting local pv: ", pv.Name)
+		err := c.KubeClient.PersistentVolumes().Delete(pv.Name, c.deleteOptions)
+		if err != nil {
+			c.logger.Warnf("could not delete local pv: %v", err)
+		}
+	}
 }
 
 func (c *Cluster) deletePodDisruptionBudget() error {

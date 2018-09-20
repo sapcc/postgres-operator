@@ -26,6 +26,10 @@ type PostgresSpec struct {
 	Patroni         `json:"patroni,omitempty"`
 	Resources       `json:"resources,omitempty"`
 
+	WaleBackup            WaleBackup        `json:"wale_backup,omitempty"`
+	UseLocalStorage       bool              `json:"use_local_storage" default:"true"`
+	PrometheusAnnotations map[string]string `json:"prometheus_annotations,omitempty"`
+
 	TeamID      string `json:"teamId"`
 	DockerImage string `json:"dockerImage,omitempty"`
 
@@ -92,6 +96,15 @@ type ResourceDescription struct {
 type Resources struct {
 	ResourceRequest ResourceDescription `json:"requests,omitempty"`
 	ResourceLimits  ResourceDescription `json:"limits,omitempty"`
+}
+
+// AWSBackup contains postgres exporter specific configs
+type WaleBackup struct {
+	S3Bucket           string `json:"WAL_S3_BUCKET"`
+	BackupSchedule     string `json:"BACKUP_SCHEDULE"`
+	AwsAccessKeyID     string `json:"AWS_ACCESS_KEY_ID"`
+	AwsSecretAccessKey string `json:"AWS_SECRET_ACCESS_KEY"`
+	AwsRegion          string `json:"AWS_REGION"`
 }
 
 // Patroni contains Patroni-specific configuration
