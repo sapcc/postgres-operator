@@ -83,6 +83,8 @@ type Cluster struct {
 	currentProcess   Process
 	processMu        sync.RWMutex // protects the current operation for reporting, no need to hold the master mutex
 	specMu           sync.RWMutex // protects the spec for reporting, no need to hold the master mutex
+
+	RegionName string
 }
 
 type compareStatefulsetResult struct {
@@ -93,7 +95,7 @@ type compareStatefulsetResult struct {
 }
 
 // New creates a new cluster. This function should be called from a controller.
-func New(cfg Config, kubeClient k8sutil.KubernetesClient, pgSpec acidv1.Postgresql, logger *logrus.Entry) *Cluster {
+func New(cfg Config, kubeClient k8sutil.KubernetesClient, pgSpec acidv1.Postgresql, logger *logrus.Entry, regionName string) *Cluster {
 	deletePropagationPolicy := metav1.DeletePropagationOrphan
 
 	podEventsQueue := cache.NewFIFO(func(obj interface{}) (string, error) {
@@ -120,6 +122,7 @@ func New(cfg Config, kubeClient k8sutil.KubernetesClient, pgSpec acidv1.Postgres
 		deleteOptions:    &metav1.DeleteOptions{PropagationPolicy: &deletePropagationPolicy},
 		podEventsQueue:   podEventsQueue,
 		KubeClient:       kubeClient,
+		RegionName:       regionName,
 	}
 	cluster.logger = logger.WithField("pkg", "cluster").WithField("cluster-name", cluster.clusterName())
 	cluster.teamsAPIClient = teams.NewTeamsAPI(cfg.OpConfig.TeamsAPIUrl, logger)

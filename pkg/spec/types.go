@@ -106,6 +106,7 @@ type ControllerConfig struct {
 	CRDReadyWaitTimeout  time.Duration
 	ConfigMapName        NamespacedName
 	Namespace            string
+	RegionName           string
 }
 
 // cached value for the GetOperatorNamespace

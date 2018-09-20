@@ -145,7 +145,7 @@ func (c *Controller) acquireInitialListOfClusters() error {
 }
 
 func (c *Controller) addCluster(lg *logrus.Entry, clusterName spec.NamespacedName, pgSpec *acidv1.Postgresql) *cluster.Cluster {
-	cl := cluster.New(c.makeClusterConfig(), c.KubeClient, *pgSpec, lg)
+	cl := cluster.New(c.makeClusterConfig(), c.KubeClient, *pgSpec, lg, c.config.RegionName)
 	cl.Run(c.stopCh)
 	teamName := strings.ToLower(cl.Spec.TeamID)
 

@@ -58,6 +58,12 @@ func init() {
 	} else {
 		config.CRDReadyWaitTimeout = 30 * time.Second
 	}
+
+	if regionName, ok := os.LookupEnv("REGION_NAME"); ok {
+		config.RegionName = regionName
+	} else {
+		log.Fatalf("REGION_NAME env not set!")
+	}
 }
 
 func main() {
