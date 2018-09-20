@@ -23,6 +23,7 @@ const (
 	pgBinariesLocationTemplate       = "/usr/lib/postgresql/%s/bin"
 	patroniPGBinariesParameterName   = "bin_dir"
 	patroniPGParametersParameterName = "parameters"
+	patroniPGHBAConfParameterName    = "pg_hba"
 	localHost                        = "127.0.0.1/32"
 )
 
@@ -32,16 +33,16 @@ type pgUser struct {
 }
 
 type patroniDCS struct {
-	TTL                  uint32  `json:"ttl,omitempty"`
-	LoopWait             uint32  `json:"loop_wait,omitempty"`
-	RetryTimeout         uint32  `json:"retry_timeout,omitempty"`
-	MaximumLagOnFailover float32 `json:"maximum_lag_on_failover,omitempty"`
+	TTL                      uint32                 `json:"ttl,omitempty"`
+	LoopWait                 uint32                 `json:"loop_wait,omitempty"`
+	RetryTimeout             uint32                 `json:"retry_timeout,omitempty"`
+	MaximumLagOnFailover     float32                `json:"maximum_lag_on_failover,omitempty"`
+	PGBootstrapConfiguration map[string]interface{} `json:"postgresql,omitempty"`
 }
 
 type pgBootstrap struct {
 	Initdb []interface{}     `json:"initdb"`
 	Users  map[string]pgUser `json:"users"`
-	PgHBA  []string          `json:"pg_hba"`
 	DCS    patroniDCS        `json:"dcs,omitempty"`
 }
 
@@ -194,19 +195,6 @@ PatroniInitDBParams:
 		config.Bootstrap.Initdb = append(config.Bootstrap.Initdb, map[string]string{k: v})
 	}
 
-	// pg_hba parameters in the manifest replace the default ones. We cannot
-	// reasonably merge them automatically, because pg_hba parsing stops on
-	// a first successfully matched rule.
-	if len(patroni.PgHba) > 0 {
-		config.Bootstrap.PgHBA = patroni.PgHba
-	} else {
-		config.Bootstrap.PgHBA = []string{
-			"hostnossl all all all reject",
-			fmt.Sprintf("hostssl   all +%s all pam", c.OpConfig.PamRoleName),
-			"hostssl   all all all md5",
-		}
-	}
-
 	if patroni.MaximumLagOnFailover >= 0 {
 		config.Bootstrap.DCS.MaximumLagOnFailover = patroni.MaximumLagOnFailover
 	}
@@ -223,8 +211,23 @@ PatroniInitDBParams:
 	config.PgLocalConfiguration = make(map[string]interface{})
 	config.PgLocalConfiguration[patroniPGBinariesParameterName] = fmt.Sprintf(pgBinariesLocationTemplate, pg.PgVersion)
 	if len(pg.Parameters) > 0 {
-		config.PgLocalConfiguration[patroniPGParametersParameterName] = pg.Parameters
+		local, bootstrap := getLocalAndBoostrapPostgreSQLParameters(pg.Parameters)
+
+		if len(local) > 0 {
+			config.PgLocalConfiguration[patroniPGParametersParameterName] = local
+		}
+		if len(bootstrap) > 0 {
+			config.Bootstrap.DCS.PGBootstrapConfiguration = make(map[string]interface{})
+			config.Bootstrap.DCS.PGBootstrapConfiguration[patroniPGParametersParameterName] = bootstrap
+		}
 	}
+	// Patroni gives us a choice of writing pg_hba.conf to either the bootstrap section or to the local postgresql one.
+	// We choose the local one, because we need Patroni to change pg_hba.conf in PostgreSQL after the user changes the
+	// relevant section in the manifest.
+	if len(patroni.PgHba) > 0 {
+		config.PgLocalConfiguration[patroniPGHBAConfParameterName] = patroni.PgHba
+	}
+
 	config.Bootstrap.Users = map[string]pgUser{
 		c.OpConfig.PamRoleName: {
 			Password: "",
@@ -237,6 +240,19 @@ PatroniInitDBParams:
 		return ""
 	}
 	return string(result)
+}
+
+func getLocalAndBoostrapPostgreSQLParameters(parameters map[string]string) (local, bootstrap map[string]string) {
+	local = make(map[string]string)
+	bootstrap = make(map[string]string)
+	for param, val := range parameters {
+		if isBootstrapOnlyParameter(param) {
+			bootstrap[param] = val
+		} else {
+			local[param] = val
+		}
+	}
+	return
 }
 
 func (c *Cluster) nodeAffinity() *v1.Affinity {
@@ -283,6 +299,19 @@ func (c *Cluster) tolerations(tolerationsSpec *[]v1.Toleration) []v1.Toleration 
 	}
 
 	return []v1.Toleration{}
+}
+
+// isBootstrapOnlyParameter checks asgainst special Patroni bootstrap parameters.
+// Those parameters must go to the bootstrap/dcs/postgresql/parameters section.
+// See http://patroni.readthedocs.io/en/latest/dynamic_configuration.html.
+func isBootstrapOnlyParameter(param string) bool {
+	return param == "max_connections" ||
+		param == "max_locks_per_transaction" ||
+		param == "max_worker_processes" ||
+		param == "max_prepared_transactions" ||
+		param == "wal_level" ||
+		param == "wal_log_hints" ||
+		param == "track_commit_timestamp"
 }
 
 func (c *Cluster) generatePodTemplate(
