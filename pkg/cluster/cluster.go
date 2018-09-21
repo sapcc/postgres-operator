@@ -253,8 +253,8 @@ func (c *Cluster) Create() error {
 	}
 
 	// create and use local storage for postgres
-	c.logger.Infof("CREATING LOCAL STORAGE", c.Postgresql.Spec.UseLocalStorage)
 	if c.Postgresql.Spec.UseLocalStorage {
+		c.logger.Infof("CREATING LOCAL STORAGE")
 		if err = c.createLocalVolumes(); err != nil {
 			return err
 		}
@@ -320,7 +320,6 @@ func (c *Cluster) createLocalVolumes() error {
 	numberOfInstances := c.getNumberOfInstances(&c.Spec)
 	numberOfLocalPv := int(float64(numberOfInstances) * 0.4)
 	numberOfPv := int(numberOfInstances - int32(numberOfLocalPv))
-	c.logger.Infof("CREATING LOCAL VOLUMES", numberOfInstances, numberOfLocalPv, numberOfPv)
 	for i := 0; i < numberOfPv; i++ {
 		pvc, err := c.createPersistentVolumeClaim(false, i, 0)
 		if err != nil {

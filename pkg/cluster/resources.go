@@ -339,7 +339,10 @@ func (c *Cluster) createPersistentVolume(instance int) (*v1.PersistentVolume, er
 	pvSpec, err := c.generatePersistentVolume(instance, &c.Spec)
 	pv, err := c.KubeClient.PersistentVolumes().Create(pvSpec)
 	if err != nil {
-		return nil, err
+		return &v1.PersistentVolume{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: pvSpec.ObjectMeta.Name,
+			}}, err
 	}
 
 	return pv, nil
@@ -350,7 +353,10 @@ func (c *Cluster) createPersistentVolumeClaim(useLocalPV bool, instance int, pvI
 	pvcSpec, err := c.generatePersistentVolumeClaim(useLocalPV, &c.Spec, instance, pvInstance)
 	pvc, err := c.KubeClient.PersistentVolumeClaims(pvcSpec.Namespace).Create(pvcSpec)
 	if err != nil {
-		return nil, err
+		return &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: pvcSpec.ObjectMeta.Name,
+			}}, err
 	}
 
 	return pvc, nil
