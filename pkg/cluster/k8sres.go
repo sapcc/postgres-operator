@@ -442,6 +442,9 @@ func generatePodTemplate(
 	}
 
 	if len(prometheusAnnotations) != 0 {
+		if template.Annotations == nil {
+			template.Annotations = map[string]string{}
+		}
 		template.Annotations["prometheus.io/scrape"] = "true"
 		for k, v := range prometheusAnnotations {
 			template.Annotations[k] = v
