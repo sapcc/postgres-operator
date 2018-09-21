@@ -605,11 +605,11 @@ func getSidecarContainer(sidecar acidv1.Sidecar, index int, volumeMounts []v1.Vo
 			},
 		},
 		{
-			Name:  "POSTGRES_USER",
+			Name:  "DATA_SOURCE_USER",
 			Value: superUserName,
 		},
 		{
-			Name: "POSTGRES_PASSWORD",
+			Name: "DATA_SOURCE_PASS",
 			ValueFrom: &v1.EnvVarSource{
 				SecretKeyRef: &v1.SecretKeySelector{
 					LocalObjectReference: v1.LocalObjectReference{

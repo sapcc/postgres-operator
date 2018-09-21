@@ -56,7 +56,7 @@ func (c *Cluster) initDbConn() error {
 
 	var conn *sql.DB
 	connstring := c.pgConnectionString()
-	c.logger.Info("CONNECTION STRING", connstring)
+	c.logger.Debug("CONNECTION STRING", connstring)
 
 	finalerr := retryutil.Retry(constants.PostgresConnectTimeout, constants.PostgresConnectRetryTimeout,
 		func() (bool, error) {
