@@ -131,6 +131,7 @@ type Sidecar struct {
 	DockerImage string             `json:"image,omitempty"`
 	Ports       []v1.ContainerPort `json:"ports,omitempty"`
 	Env         []v1.EnvVar        `json:"env,omitempty"`
+	Args        []string           `json:"args,omitempty"`
 }
 
 // UserFlags defines flags (such as superuser, nologin) that could be assigned to individual users

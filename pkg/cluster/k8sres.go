@@ -332,6 +332,27 @@ func generateVolumeMounts() []v1.VolumeMount {
 	}
 }
 
+func generateSideCarVolumeMount() v1.VolumeMount {
+	return v1.VolumeMount{
+		Name:      "sidecar-volume",
+		MountPath: "/config",
+		ReadOnly:  true,
+	}
+}
+
+func generateSideCarVolume(configName string) v1.Volume {
+	return v1.Volume{
+		Name: "sidecar-volume",
+		VolumeSource: v1.VolumeSource{
+			ConfigMap: &v1.ConfigMapVolumeSource{
+				LocalObjectReference: v1.LocalObjectReference{
+					Name: configName,
+				},
+			},
+		},
+	}
+}
+
 func generateSpiloContainer(
 	name string,
 	dockerImage *string,
@@ -409,6 +430,7 @@ func generatePodTemplate(
 	kubeIAMRole string,
 	priorityClassName string,
 	prometheusAnnotations map[string]string,
+	volumes []v1.Volume,
 ) (*v1.PodTemplateSpec, error) {
 
 	terminateGracePeriodSeconds := terminateGracePeriod
@@ -420,6 +442,7 @@ func generatePodTemplate(
 		TerminationGracePeriodSeconds: &terminateGracePeriodSeconds,
 		Containers:                    containers,
 		Tolerations:                   *tolerationsSpec,
+		Volumes:                       volumes,
 	}
 
 	if nodeAffinity != nil {
@@ -581,6 +604,7 @@ func deduplicateEnvVars(input []v1.EnvVar, containerName string, logger *logrus.
 func getSidecarContainer(sidecar acidv1.Sidecar, index int, volumeMounts []v1.VolumeMount,
 	resources *v1.ResourceRequirements, superUserName string, credentialsSecretName string, logger *logrus.Entry) *v1.Container {
 	name := sidecar.Name
+	args := []string{}
 	if name == "" {
 		name = fmt.Sprintf("sidecar-%d", index)
 	}
@@ -623,6 +647,11 @@ func getSidecarContainer(sidecar acidv1.Sidecar, index int, volumeMounts []v1.Vo
 	if len(sidecar.Env) > 0 {
 		env = append(env, sidecar.Env...)
 	}
+
+	if len(sidecar.Args) > 0 {
+		args = append(args, sidecar.Args...)
+	}
+
 	return &v1.Container{
 		Name:            name,
 		Image:           sidecar.DockerImage,
@@ -631,6 +660,7 @@ func getSidecarContainer(sidecar acidv1.Sidecar, index int, volumeMounts []v1.Vo
 		VolumeMounts:    volumeMounts,
 		Env:             deduplicateEnvVars(env, name, logger),
 		Ports:           sidecar.Ports,
+		Args:            args,
 	}
 }
 
@@ -719,6 +749,16 @@ func (c *Cluster) generateStatefulSet(spec *acidv1.PostgresSpec) (*v1beta1.State
 		sideCars = append(sideCars, *scalyrSidecar)
 	}
 
+	configMap, err := c.KubeClient.ConfigMaps(c.Namespace).
+		Get(c.ClusterName+"-prometheus-config", metav1.GetOptions{})
+	var volumes []v1.Volume
+	if err == nil {
+		volume := generateSideCarVolume(configMap.Name)
+		volumes = append(volumes, volume)
+		volumeMount := generateSideCarVolumeMount()
+		volumeMounts = append(volumeMounts, volumeMount)
+	}
+
 	// generate sidecar containers
 	if sidecarContainers, err = generateSidecarContainers(sideCars, volumeMounts, defaultResources,
 		c.OpConfig.SuperUsername, c.credentialSecretName(c.OpConfig.SuperUsername), c.logger); err != nil {
@@ -740,7 +780,8 @@ func (c *Cluster) generateStatefulSet(spec *acidv1.PostgresSpec) (*v1beta1.State
 		c.OpConfig.PodServiceAccountName,
 		c.OpConfig.KubeIAMRole,
 		effectivePodPriorityClassName,
-		c.Spec.PrometheusAnnotations); err != nil {
+		c.Spec.PrometheusAnnotations,
+		volumes); err != nil {
 		return nil, fmt.Errorf("could not generate pod template: %v", err)
 	}
 
