@@ -932,7 +932,7 @@ func (c *Cluster) generatePersistentVolume(instance int, spec *acidv1.PostgresSp
 	}
 	pv := &v1.PersistentVolume{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:   fmt.Sprintf("%s-local-pv-volume-%d", spec.ClusterName, instance),
+			Name:   fmt.Sprintf("%s-%s-local-pv-volume-%d", spec.TeamID, spec.ClusterName, instance),
 			Labels: lbls,
 		},
 		Spec: v1.PersistentVolumeSpec{
@@ -966,7 +966,7 @@ func (c *Cluster) generatePersistentVolumeClaim(local bool, spec *acidv1.Postgre
 	if local {
 		lbls["storage-tier"] = "local"
 		storageClassName = "local"
-		volumeName = fmt.Sprintf("%s-local-pv-volume-%d", spec.ClusterName, pvInstance)
+		volumeName = fmt.Sprintf("%s-%s-local-pv-volume-%d", spec.TeamID, spec.ClusterName, pvInstance)
 	}
 
 	pvc := &v1.PersistentVolumeClaim{
