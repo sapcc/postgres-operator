@@ -105,6 +105,7 @@ type WaleBackup struct {
 	AwsAccessKeyID     string `json:"AWS_ACCESS_KEY_ID"`
 	AwsSecretAccessKey string `json:"AWS_SECRET_ACCESS_KEY"`
 	AwsRegion          string `json:"AWS_REGION"`
+	BackupNumToRetain  string `json:"BACKUP_NUM_TO_RETAIN"`
 }
 
 // Patroni contains Patroni-specific configuration
